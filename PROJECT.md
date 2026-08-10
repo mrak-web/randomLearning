@@ -258,8 +258,18 @@ send_config    daily_cap, ramp_step, ramp_ceiling    -- single-row config table
    committed). Tested entirely against a fake HTTP session/finder (33 tests) so
    development didn't spend any of the real 25-lookups/month free tier; nothing has
    been run against the live API yet since there's no key configured.
-5. **Email generation** — template + story-bank + resume-attach logic, writes to
+5. ✅ **Email generation** — template + story-bank + resume-attach logic, writes to
    `email_queue` as `pending_review`.
+   Implemented in `agent/email_generation.py` (`build_story_paragraph` stitches the
+   first 2 story-bank bullets per niche, `render_email` fills the 4 template
+   placeholders, `generate_pending_emails` does the DB orchestration — only
+   `status='verified'` contacts are picked up, `needs_manual_check` ones are
+   deliberately skipped per §4.3) and `scripts/generate_emails.py` as the CLI entry
+   point. Wrote the two remaining templates (`data_saas.txt`, `ai_devtools.txt`)
+   so all four niches now render, even though only `consumer` currently reaches
+   this stage. Verified end-to-end against the real pipeline (import → classify →
+   discover with a fake finder → generate) — a real rendered draft read correctly
+   and its UTF-8 (e.g. em dashes) round-tripped intact through SQLite.
 6. **Review queue UI** — Streamlit approve/edit/reject app.
 7. **Scheduled sending** — daily-cap batch sender with warm-up ramp + circuit breaker.
 8. **Tracking + follow-ups** — reply polling, single follow-up generation.

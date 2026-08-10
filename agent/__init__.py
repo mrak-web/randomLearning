@@ -29,6 +29,15 @@ from agent.contact_discovery import (
     select_contact,
 )
 from agent.db import connect, init_db, table_counts
+from agent.email_generation import (
+    EmailGenerationError,
+    GenerationStats,
+    build_story_paragraph,
+    generate_pending_emails,
+    get_first_name,
+    parse_template,
+    render_email,
+)
 from agent.sourcing import (
     CompanySource,
     ImportStats,
@@ -39,6 +48,13 @@ from agent.sourcing import (
 )
 
 __all__ = [
+    "EmailGenerationError",
+    "GenerationStats",
+    "build_story_paragraph",
+    "generate_pending_emails",
+    "get_first_name",
+    "parse_template",
+    "render_email",
     "ContactDiscoveryError",
     "DiscoveryStats",
     "EmailFinder",

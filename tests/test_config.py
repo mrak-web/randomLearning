@@ -119,4 +119,5 @@ def test_missing_templates_reflects_current_repo_state():
 
     missing = missing_templates(settings, story_bank)
 
-    assert set(missing) == {"data_saas", "ai_devtools"}
+    # All four niche templates exist as of module 5 (email generation).
+    assert missing == []

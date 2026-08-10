@@ -1,0 +1,17 @@
+Subject: Product role at {{company_name}} — data-driven product background
+
+Hi {{contact_first_name}},
+
+I'm Arjun — I've worked on the analytics side of Indus Insights, turning
+messy multi-system data into something teams could actually act on, and
+I'd love to be considered for a product role at {{company_name}}.
+
+{{story_paragraph}}
+
+I'm currently a Product Management Intern at Rapido, and would welcome the
+chance to bring that same hypothesis-driven, data-first approach to
+{{company_name}}'s product team. My resume is attached — happy to share
+more context on any of the above.
+
+Best,
+{{sender_name}}
