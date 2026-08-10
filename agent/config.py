@@ -52,6 +52,8 @@ class SendConfig:
     ramp_ceiling: int
     ramp_interval_days: int
     bounce_rate_circuit_breaker: float
+    min_delay_seconds: float
+    max_delay_seconds: float
 
 
 @dataclass(frozen=True)
@@ -66,6 +68,8 @@ class Settings:
     attach_resume_by_default: bool
     sender_email: str
     sender_display_name: str
+    gmail_credentials_path: Path
+    gmail_token_path: Path
     sourcing_sources: list[str]
     contact_discovery: ContactDiscoveryConfig
     niches: NicheConfig
@@ -88,6 +92,7 @@ def load_settings(path: Path | None = None) -> Settings:
 
     resume = _require(raw, "resume", str(path))
     sender = _require(raw, "sender", str(path))
+    gmail = _require(raw, "gmail", str(path))
     sourcing = _require(raw, "sourcing", str(path))
     contact_discovery = _require(raw, "contact_discovery", str(path))
     niches = _require(raw, "niches", str(path))
@@ -109,6 +114,10 @@ def load_settings(path: Path | None = None) -> Settings:
         attach_resume_by_default=bool(resume.get("attach_by_default", True)),
         sender_email=sender.get("email", ""),
         sender_display_name=_require(sender, "display_name", f"{path} sender"),
+        gmail_credentials_path=_resolve_path(
+            _require(gmail, "credentials_path", f"{path} gmail")
+        ),
+        gmail_token_path=_resolve_path(_require(gmail, "token_path", f"{path} gmail")),
         sourcing_sources=list(_require(sourcing, "sources", f"{path} sourcing")),
         contact_discovery=ContactDiscoveryConfig(
             role_search_order=list(
@@ -130,6 +139,8 @@ def load_settings(path: Path | None = None) -> Settings:
             bounce_rate_circuit_breaker=float(
                 _require(send, "bounce_rate_circuit_breaker", f"{path} send")
             ),
+            min_delay_seconds=float(_require(send, "min_delay_seconds", f"{path} send")),
+            max_delay_seconds=float(_require(send, "max_delay_seconds", f"{path} send")),
         ),
         followup=FollowupConfig(
             business_days_wait=int(_require(followup, "business_days_wait", f"{path} followup")),

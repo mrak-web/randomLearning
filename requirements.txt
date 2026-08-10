@@ -7,8 +7,15 @@ requests==2.32.3
 # Module 6: review queue UI
 streamlit==1.38.0
 
+# Module 7: scheduled sending (Gmail API)
+google-api-python-client==2.198.0
+google-auth-httplib2==0.4.1
+google-auth-oauthlib==1.4.0
+# Pinned explicitly: google-api-python-client's own dependency chain (google-api-core,
+# proto-plus) wants protobuf>=6.33, but streamlit needs protobuf<6. The REST/discovery-
+# based Gmail client used here doesn't touch google-api-core/proto-plus at runtime, so
+# this older protobuf works for both — verified by importing both together.
+protobuf==5.29.6
+
 # Dev/test
 pytest==8.3.3
-
-# Later modules will add:
-# google-api-python-client, google-auth-httplib2, google-auth-oauthlib  (Gmail sending/tracking)

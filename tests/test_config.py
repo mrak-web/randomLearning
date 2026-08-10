@@ -56,6 +56,9 @@ resume:
 sender:
   email: ""
   display_name: "Test"
+gmail:
+  credentials_path: "./data/gmail_credentials.json"
+  token_path: "./data/gmail_token.json"
 sourcing:
   sources: [manual_csv]
 contact_discovery:
@@ -71,6 +74,8 @@ send:
   ramp_ceiling: 25
   ramp_interval_days: 7
   bounce_rate_circuit_breaker: 0.05
+  min_delay_seconds: 30
+  max_delay_seconds: 120
 followup:
   business_days_wait: 5
   max_followups: 1

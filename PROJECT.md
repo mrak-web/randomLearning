@@ -289,7 +289,29 @@ send_config    daily_cap, ramp_step, ramp_ceiling    -- single-row config table
    rendering/click-through in an actual browser has **not** been confirmed —
    worth a quick manual check (`streamlit run review_app.py`) before relying
    on it.
-7. **Scheduled sending** — daily-cap batch sender with warm-up ramp + circuit breaker.
+7. ✅ **Scheduled sending** — daily-cap batch sender with warm-up ramp + circuit breaker.
+   Implemented in `agent/sending.py` (`EmailSender` ABC — same swap pattern as
+   `CompanySource`/`EmailFinder` — `apply_ramp_if_due` growing `send_config.daily_cap`
+   by `ramp_step` once `ramp_interval_days` elapse, a pre-flight bounce-rate circuit
+   breaker checked against the most recent day with sends, `send_approved_emails`
+   doing the batch orchestration with a small randomized delay between sends) and
+   `agent/gmail_client.py` (MIME construction + resume attachment, `GmailApiSender`
+   wrapping `users.messages.send`, with token refresh handled automatically). Send-
+   time failures leave a row at `status='approved'` for retry rather than being
+   conflated with a bounce — bounces are an async signal module 8 detects later, not
+   something a synchronous send call can know. `scripts/gmail_auth.py` runs the
+   one-time OAuth flow (needs a Google Cloud OAuth client you create yourself);
+   `scripts/send_batch.py` is the daily entry point.
+   google-api-python-client's dependency chain wanted a newer `protobuf` than
+   Streamlit (module 6) tolerates — pinned `protobuf==5.29.6` after confirming both
+   import together, since the REST/discovery-based Gmail client doesn't touch the
+   `google-api-core`/`proto-plus` code paths that wanted the newer version.
+   Tested with 21 cases (ramp math, cap accounting, circuit breaker, send-failure
+   handling, delay spacing, MIME/attachment round-trip) against a fake `EmailSender`
+   — no real Gmail credentials exist yet, so nothing has been sent live. Verified the
+   full pipeline end-to-end (import → classify → discover → generate → approve →
+   send) with a fake sender standing in for Gmail; all three approved drafts came out
+   correctly marked `sent` with thread ids.
 8. **Tracking + follow-ups** — reply polling, single follow-up generation.
 
 Each module is runnable and testable in isolation against the shared SQLite DB before

@@ -38,7 +38,15 @@ from agent.email_generation import (
     parse_template,
     render_email,
 )
+from agent.gmail_client import SCOPES, GmailApiSender, build_mime_message, encode_message
 from agent.review_queue import PendingDraft, approve_draft, list_pending_drafts, reject_draft
+from agent.sending import (
+    EmailSender,
+    SendingError,
+    SendStats,
+    apply_ramp_if_due,
+    send_approved_emails,
+)
 from agent.sourcing import (
     CompanySource,
     ImportStats,
@@ -53,6 +61,15 @@ __all__ = [
     "approve_draft",
     "list_pending_drafts",
     "reject_draft",
+    "EmailSender",
+    "SendingError",
+    "SendStats",
+    "apply_ramp_if_due",
+    "send_approved_emails",
+    "SCOPES",
+    "GmailApiSender",
+    "build_mime_message",
+    "encode_message",
     "EmailGenerationError",
     "GenerationStats",
     "build_story_paragraph",

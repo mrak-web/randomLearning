@@ -6,8 +6,16 @@ resume:
   attach_by_default: true
 
 sender:
-  email: ""              # personal Gmail address — fill in before module 6 (sending)
+  email: ""              # personal Gmail address — fill in before module 7 (sending)
   display_name: "Arjun Khanna"
+
+gmail:
+  # OAuth client JSON from Google Cloud Console (APIs & Services -> Credentials ->
+  # Create Credentials -> OAuth client ID -> Desktop app). Never commit either file —
+  # both live under data/, which is gitignored.
+  credentials_path: "./data/gmail_credentials.json"
+  # Written by scripts/gmail_auth.py after the one-time OAuth consent flow.
+  token_path: "./data/gmail_token.json"
 
 sourcing:
   sources:
@@ -45,6 +53,12 @@ send:
   ramp_ceiling: 25
   ramp_interval_days: 7
   bounce_rate_circuit_breaker: 0.05   # halt sending and flag for review above this bounce rate
+  # Randomized pause between individual sends within one run, so a batch doesn't
+  # fire as one instant burst. This spaces a run over minutes, not hours — true
+  # all-day spacing would mean multiple smaller Task Scheduler triggers instead
+  # of one long-blocking script.
+  min_delay_seconds: 30
+  max_delay_seconds: 120
 
 followup:
   business_days_wait: 5
