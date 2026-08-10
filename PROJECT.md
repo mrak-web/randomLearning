@@ -248,8 +248,16 @@ send_config    daily_cap, ramp_step, ramp_ceiling    -- single-row config table
    (same pattern as `story_bank.yaml`) and a CLI entry point at
    `scripts/classify_companies.py`. Unclassifiable companies land at
    `status=skipped` rather than being guessed.
-4. **Contact discovery** — Hunter.io free-tier integration behind the `EmailFinder`
+4. ✅ **Contact discovery** — Hunter.io free-tier integration behind the `EmailFinder`
    interface.
+   Implemented in `agent/contact_discovery.py` (`EmailFinder` ABC, `HunterEmailFinder`
+   against Hunter's documented Domain Search endpoint, `select_contact` applying
+   `role_search_order`, `discover_contacts_for_pending_companies` doing the DB
+   orchestration with a `max_lookups` safety cap) and `scripts/discover_contacts.py`
+   as the CLI entry point (reads `HUNTER_API_KEY` from the environment — never
+   committed). Tested entirely against a fake HTTP session/finder (33 tests) so
+   development didn't spend any of the real 25-lookups/month free tier; nothing has
+   been run against the live API yet since there's no key configured.
 5. **Email generation** — template + story-bank + resume-attach logic, writes to
    `email_queue` as `pending_review`.
 6. **Review queue UI** — Streamlit approve/edit/reject app.

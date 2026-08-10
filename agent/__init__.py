@@ -18,6 +18,16 @@ from agent.config import (
     load_story_bank,
     missing_templates,
 )
+from agent.contact_discovery import (
+    ContactDiscoveryError,
+    DiscoveryStats,
+    EmailFinder,
+    FoundContact,
+    HunterEmailFinder,
+    categorize_role,
+    discover_contacts_for_pending_companies,
+    select_contact,
+)
 from agent.db import connect, init_db, table_counts
 from agent.sourcing import (
     CompanySource,
@@ -29,6 +39,14 @@ from agent.sourcing import (
 )
 
 __all__ = [
+    "ContactDiscoveryError",
+    "DiscoveryStats",
+    "EmailFinder",
+    "FoundContact",
+    "HunterEmailFinder",
+    "categorize_role",
+    "discover_contacts_for_pending_companies",
+    "select_contact",
     "ClassificationStats",
     "build_classification_text",
     "classify_pending_companies",
