@@ -1,3 +1,10 @@
+from agent.classification import (
+    ClassificationStats,
+    build_classification_text,
+    classify_pending_companies,
+    classify_text,
+    score_niches,
+)
 from agent.config import (
     ConfigError,
     ContactDiscoveryConfig,
@@ -6,6 +13,7 @@ from agent.config import (
     NicheStory,
     Settings,
     SendConfig,
+    load_niche_keywords,
     load_settings,
     load_story_bank,
     missing_templates,
@@ -21,6 +29,11 @@ from agent.sourcing import (
 )
 
 __all__ = [
+    "ClassificationStats",
+    "build_classification_text",
+    "classify_pending_companies",
+    "classify_text",
+    "score_niches",
     "ConfigError",
     "ContactDiscoveryConfig",
     "FollowupConfig",
@@ -28,6 +41,7 @@ __all__ = [
     "NicheStory",
     "Settings",
     "SendConfig",
+    "load_niche_keywords",
     "load_settings",
     "load_story_bank",
     "missing_templates",

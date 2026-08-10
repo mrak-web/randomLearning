@@ -1,0 +1,86 @@
+# Keyword lists for the rule-based niche classifier (agent/classification.py, PROJECT.md §4.2).
+#
+# Matching is case-insensitive and whole-word (regex \b...\b) against each company's
+# name + raw_tags (joined into one string). A niche's score is how many of its keywords
+# hit; highest score wins; ties break toward the order in settings.yaml niches.order
+# (consumer first). A company with zero hits across all niches is left unclassified
+# (status=skipped) for manual tagging rather than guessed.
+#
+# Edit freely — these are a starting point, not tuned against real data yet.
+
+consumer:
+  - consumer
+  - marketplace
+  - d2c
+  - dtc
+  - e-commerce
+  - ecommerce
+  - ride-hailing
+  - ride hailing
+  - mobility
+  - quick-commerce
+  - quick commerce
+  - food delivery
+  - grocery
+  - retail
+  - gaming
+  - fashion
+  - travel
+  - hospitality
+  - dating
+  - creator economy
+  - social app
+  - subscription box
+
+fintech:
+  - fintech
+  - payments
+  - payment
+  - banking
+  - bank
+  - lending
+  - credit
+  - loan
+  - insurance
+  - insurtech
+  - wealth
+  - investing
+  - investment
+  - neobank
+  - upi
+  - wallet
+  - bnpl
+  - remittance
+  - trading
+
+data_saas:
+  - saas
+  - analytics
+  - business intelligence
+  - enterprise software
+  - workflow
+  - crm
+  - erp
+  - data platform
+  - data infrastructure
+  - database
+  - data warehouse
+  - data pipeline
+  - dashboard
+
+ai_devtools:
+  - ai
+  - ml
+  - artificial intelligence
+  - machine learning
+  - llm
+  - genai
+  - generative ai
+  - developer tools
+  - devtools
+  - dev tools
+  - automation
+  - ai agent
+  - copilot
+  - no-code
+  - low-code

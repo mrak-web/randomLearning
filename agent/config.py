@@ -11,10 +11,11 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SETTINGS_PATH = PROJECT_ROOT / "config" / "settings.yaml"
 DEFAULT_STORY_BANK_PATH = PROJECT_ROOT / "config" / "story_bank.yaml"
+DEFAULT_NICHE_KEYWORDS_PATH = PROJECT_ROOT / "config" / "niche_keywords.yaml"
 
 
 class ConfigError(Exception):
-    """Raised when settings.yaml or story_bank.yaml is missing or malformed."""
+    """Raised when a config YAML file is missing or malformed."""
 
 
 def _require(d: dict, key: str, context: str) -> Any:
@@ -73,6 +74,7 @@ class Settings:
     db_path: Path
     story_bank_path: Path
     templates_dir: Path
+    niche_keywords_path: Path
 
 
 def load_settings(path: Path | None = None) -> Settings:
@@ -136,6 +138,9 @@ def load_settings(path: Path | None = None) -> Settings:
         db_path=_resolve_path(_require(paths, "db_path", f"{path} paths")),
         story_bank_path=_resolve_path(_require(paths, "story_bank_path", f"{path} paths")),
         templates_dir=_resolve_path(_require(paths, "templates_dir", f"{path} paths")),
+        niche_keywords_path=_resolve_path(
+            _require(paths, "niche_keywords_path", f"{path} paths")
+        ),
     )
 
 
@@ -177,3 +182,20 @@ def missing_templates(settings: Settings, story_bank: dict[str, NicheStory]) -> 
     return sorted(
         niche for niche in story_bank if not (settings.templates_dir / f"{niche}.txt").exists()
     )
+
+
+def load_niche_keywords(path: Path | None = None) -> dict[str, list[str]]:
+    path = path or DEFAULT_NICHE_KEYWORDS_PATH
+    if not path.exists():
+        raise ConfigError(f"niche keywords file not found: {path}")
+
+    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if not isinstance(raw, dict):
+        raise ConfigError(f"{path} did not parse to a mapping")
+
+    keywords: dict[str, list[str]] = {}
+    for niche, entry in raw.items():
+        if not entry:
+            raise ConfigError(f"{path}[{niche}] has no keywords")
+        keywords[niche] = list(entry)
+    return keywords

@@ -46,8 +46,8 @@ recent role.
 
 ```
 ┌─────────────────┐     ┌──────────────────┐     ┌────────────────┐
-│ 1. Company        │ →  │ 2. Contact         │ →  │ 3. Classifier    │
-│    Sourcing        │    │    Discovery        │    │    (niche tag)   │
+│ 1. Company        │ →  │ 2. Classifier      │ →  │ 3. Contact       │
+│    Sourcing        │    │    (niche tag)      │    │    Discovery      │
 └─────────────────┘     └──────────────────┘     └────────────────┘
                                                               │
                                                               ▼
@@ -60,6 +60,13 @@ recent role.
 All modules read/write a single SQLite datastore (`agent.db`). No module talks directly
 to another — each reads its input state from the DB and writes its output state back.
 This keeps every stage independently re-runnable and inspectable.
+
+Classification runs **before** contact discovery, not after, even though it's easy to
+assume niche-tagging happens once you already have a contact. It has to come first: rule-
+based classification is free (no external API), while contact discovery burns Hunter.io's
+25-lookups/month free tier — so niche has to be known *before* discovery in order for
+`niches.active_for_discovery` (§2) to actually gate anything. Running discovery first
+would mean spending a lookup on a company before knowing whether it's even in-scope.
 
 ### 4.1 Company Sourcing
 
@@ -76,14 +83,30 @@ Pulls candidate companies from **public, ToS-compliant sources only**:
 Output: row per company in `companies` table with `name, domain, source, raw_tags,
 status=new`.
 
-### 4.2 Contact Discovery (real API, not scraping)
+### 4.2 Classification
+
+Rule-based keyword/tag classifier against the four niches in §3 (consumer, fintech,
+data-SaaS, AI/dev-tools) using the company's stated industry tags and name (no scraped
+domain description exists in the schema — classification works off `raw_tags` +
+`name` only). No ML model needed at this scale — a scored, whole-word keyword match
+per niche, highest score wins, ties broken toward consumer per Arjun's preference.
+Unclassifiable companies (`status=skipped`, no keyword hits at all) are left for manual
+tagging rather than guessed.
+
+Runs immediately after sourcing (§4.1) and before contact discovery (§4.3) — see the
+note in §4 architecture on why the order matters.
+
+Output: `companies.niche` set and `companies.status` moved from `new` to `classified`
+(or `skipped` if unclassifiable).
+
+### 4.3 Contact Discovery (real API, not scraping)
 
 Given a company domain, finds a named contact with a **verified** email — never a
 guessed or scraped address. Even though Arjun is targeting product roles specifically,
 contact discovery deliberately does **not** just look for the most senior PM — it looks
 for whoever is most likely to actually reply:
 
-- **Niche-gated**: only runs against companies whose classified niche is in
+- **Niche-gated**: only runs against companies whose classified niche (§4.2) is in
   `settings.yaml`'s `niches.active_for_discovery` (currently `consumer` only —
   see §2). Fintech/data-SaaS/AI-devtools companies still get sourced and classified,
   they just sit at `status=classified` without an API lookup spent on them until that
@@ -106,14 +129,6 @@ for whoever is most likely to actually reply:
 
 Output: row per contact in `contacts` table with `company_id, name, role, role_category,
 email, verification_confidence, source_api`.
-
-### 4.3 Classification
-
-Rule-based keyword/tag classifier against the four niches in §3 (consumer, fintech,
-data-SaaS, AI/dev-tools) using the company's stated industry tags, YC/ProductHunt topic
-tags, and domain description. No ML model needed at this scale — a scored keyword match
-per niche, highest score wins, ties broken toward consumer per Arjun's preference.
-Unclassifiable companies are flagged for manual tagging rather than guessed.
 
 ### 4.4 Email Generation
 
@@ -201,7 +216,7 @@ send_config    daily_cap, ramp_step, ramp_ceiling    -- single-row config table
 
 | Risk | Mitigation in this design |
 |---|---|
-| **LinkedIn/Crunchbase scraping** — ToS violation, account ban risk, legally contested territory (hiQ v. LinkedIn line of cases) | Not used at all. Sourcing restricted to public APIs/open data (§4.1); contact discovery restricted to a licensed email-finder API (§4.2), never scraped from LinkedIn profiles. |
+| **LinkedIn/Crunchbase scraping** — ToS violation, account ban risk, legally contested territory (hiQ v. LinkedIn line of cases) | Not used at all. Sourcing restricted to public APIs/open data (§4.1); contact discovery restricted to a licensed email-finder API (§4.3), never scraped from LinkedIn profiles. |
 | **Guessed email addresses** (`first.last@domain.com` patterns) — high bounce rate, hurts sender reputation, sometimes hits wrong/uninvolved people | Only verified-confidence results from the finder API are auto-queued; low-confidence ones are routed to manual check instead of guessed. |
 | **Personal Gmail spam/suspension risk** — cold outreach from a personal account can trigger Google's abuse detection | Low starting cap + gradual ramp (§4.6), spaced sends (not bursts), circuit breaker on bounce rate, human-approved content (reduces spammy-pattern risk vs. templated blasts), Gmail API (not raw SMTP relay, which Google trusts less). |
 | **Spam complaints** — recipients marking as spam damages both deliverability and the personal Gmail account's standing | Every email includes a low-friction opt-out/"let me know if not relevant" line; strictly one follow-up, then automatic retirement — no repeated unsolicited contact. |
@@ -225,9 +240,16 @@ send_config    daily_cap, ramp_step, ramp_ceiling    -- single-row config table
    YC/ProductHunt/Startup India pulls are **not built yet** — each is a real
    third-party API/endpoint that needs its response shape verified live before
    writing a parser against it, rather than guessed from memory.
-3. **Contact discovery** — Hunter.io free-tier integration behind the `EmailFinder`
+3. ✅ **Classification** — rule-based niche tagger. Reordered ahead of contact discovery
+   (was step 4) since it's free and has to run first for `niches.active_for_discovery`
+   to gate anything — see the note in §4.
+   Implemented in `agent/classification.py` (whole-word keyword scoring, ties broken
+   by `niches.order`) with keywords in the editable `config/niche_keywords.yaml`
+   (same pattern as `story_bank.yaml`) and a CLI entry point at
+   `scripts/classify_companies.py`. Unclassifiable companies land at
+   `status=skipped` rather than being guessed.
+4. **Contact discovery** — Hunter.io free-tier integration behind the `EmailFinder`
    interface.
-4. **Classification** — rule-based niche tagger.
 5. **Email generation** — template + story-bank + resume-attach logic, writes to
    `email_queue` as `pending_review`.
 6. **Review queue UI** — Streamlit approve/edit/reject app.

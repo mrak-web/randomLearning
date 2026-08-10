@@ -22,7 +22,7 @@ contact_discovery:
   role_search_order:
     - hr
     - product
-  finder_api: hunter        # hunter | apollo | prospeo | snov — swappable, see agent/EmailFinder interface (module 3)
+  finder_api: hunter        # hunter | apollo | prospeo | snov — swappable, see agent/EmailFinder interface (module 4)
   min_verification_confidence: 0.7
 
 niches:
@@ -54,3 +54,4 @@ paths:
   db_path: "./agent.db"
   story_bank_path: "./config/story_bank.yaml"
   templates_dir: "./config/templates"
+  niche_keywords_path: "./config/niche_keywords.yaml"
