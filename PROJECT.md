@@ -215,8 +215,16 @@ send_config    daily_cap, ramp_step, ramp_ceiling    -- single-row config table
    Implemented in `agent/config.py` (typed, validating `Settings`/`NicheStory` loaders)
    and `agent/db.py` (schema init + seeded `send_config` + connection helper), with a
    pytest suite in `tests/` and a manual sanity-check script at `scripts/init_db.py`.
-2. **Company sourcing** — start with manual CSV import (unblocks everything downstream
+2. 🟡 **Company sourcing** — start with manual CSV import (unblocks everything downstream
    immediately) then wire up YC/ProductHunt/Startup-India pulls.
+   Manual CSV import is implemented: `agent/sourcing.py` (`CompanySource` ABC,
+   `ManualCsvSource`, `import_companies` with domain-dedup against the DB's unique
+   index) and `scripts/import_companies_csv.py` as the CLI entry point. Drop a CSV
+   with `name` (required), `domain`, `tags` (semicolon-separated) columns anywhere
+   and run `py scripts/import_companies_csv.py path/to/file.csv`.
+   YC/ProductHunt/Startup India pulls are **not built yet** — each is a real
+   third-party API/endpoint that needs its response shape verified live before
+   writing a parser against it, rather than guessed from memory.
 3. **Contact discovery** — Hunter.io free-tier integration behind the `EmailFinder`
    interface.
 4. **Classification** — rule-based niche tagger.

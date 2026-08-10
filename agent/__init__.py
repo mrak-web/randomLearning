@@ -11,6 +11,14 @@ from agent.config import (
     missing_templates,
 )
 from agent.db import connect, init_db, table_counts
+from agent.sourcing import (
+    CompanySource,
+    ImportStats,
+    ManualCsvSource,
+    RawCompany,
+    SourcingError,
+    import_companies,
+)
 
 __all__ = [
     "ConfigError",
@@ -26,4 +34,10 @@ __all__ = [
     "connect",
     "init_db",
     "table_counts",
+    "CompanySource",
+    "ImportStats",
+    "ManualCsvSource",
+    "RawCompany",
+    "SourcingError",
+    "import_companies",
 ]
