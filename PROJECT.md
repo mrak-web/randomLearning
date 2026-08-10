@@ -270,7 +270,25 @@ send_config    daily_cap, ramp_step, ramp_ceiling    -- single-row config table
    this stage. Verified end-to-end against the real pipeline (import → classify →
    discover with a fake finder → generate) — a real rendered draft read correctly
    and its UTF-8 (e.g. em dashes) round-tripped intact through SQLite.
-6. **Review queue UI** — Streamlit approve/edit/reject app.
+6. ✅ **Review queue UI** — Streamlit approve/edit/reject app.
+   Implemented in `agent/review_queue.py` (`list_pending_drafts`,
+   `approve_draft`/`reject_draft` — both guarded so acting on an
+   already-actioned row is a safe no-op, e.g. two browser tabs open on the same
+   draft) with `review_app.py` at the repo root as the Streamlit entry point
+   (`streamlit run review_app.py`): one card per pending draft with company/
+   contact/niche, a read-only subject, an editable body, and Approve/Reject
+   buttons. Approving only flips status to `approved` — sending is a separate
+   step (module 7), so there's always a review buffer.
+   DB logic has 9 passing tests. The Streamlit page itself was launched
+   headless against real seeded data (full pipeline: import → classify →
+   discover → generate) and confirmed to boot without exceptions with a
+   passing health check; no browser-automation tool was available in this
+   environment to click through it, so the exact `approve_draft` call the
+   Approve button makes was separately exercised directly against the same
+   live DB and confirmed to transition status correctly. Visual
+   rendering/click-through in an actual browser has **not** been confirmed —
+   worth a quick manual check (`streamlit run review_app.py`) before relying
+   on it.
 7. **Scheduled sending** — daily-cap batch sender with warm-up ramp + circuit breaker.
 8. **Tracking + follow-ups** — reply polling, single follow-up generation.
 

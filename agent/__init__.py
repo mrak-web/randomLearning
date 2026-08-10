@@ -38,6 +38,7 @@ from agent.email_generation import (
     parse_template,
     render_email,
 )
+from agent.review_queue import PendingDraft, approve_draft, list_pending_drafts, reject_draft
 from agent.sourcing import (
     CompanySource,
     ImportStats,
@@ -48,6 +49,10 @@ from agent.sourcing import (
 )
 
 __all__ = [
+    "PendingDraft",
+    "approve_draft",
+    "list_pending_drafts",
+    "reject_draft",
     "EmailGenerationError",
     "GenerationStats",
     "build_story_paragraph",

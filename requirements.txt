@@ -4,9 +4,11 @@ PyYAML==6.0.2
 # Module 4: contact discovery (Hunter.io)
 requests==2.32.3
 
+# Module 6: review queue UI
+streamlit==1.38.0
+
 # Dev/test
 pytest==8.3.3
 
 # Later modules will add:
 # google-api-python-client, google-auth-httplib2, google-auth-oauthlib  (Gmail sending/tracking)
-# streamlit                                                             (review queue UI)
