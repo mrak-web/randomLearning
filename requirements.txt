@@ -1,6 +1,9 @@
 # Module 1: datastore + config
 PyYAML==6.0.2
 
+# Dev/test
+pytest==8.3.3
+
 # Later modules will add:
 # google-api-python-client, google-auth-httplib2, google-auth-oauthlib  (Gmail sending/tracking)
 # streamlit                                                             (review queue UI)

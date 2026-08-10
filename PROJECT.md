@@ -210,8 +210,11 @@ send_config    daily_cap, ramp_step, ramp_ceiling    -- single-row config table
 
 ## 8. Module build order
 
-1. **Datastore + config** — schema (§6), `story_bank.yaml`, niche templates, resume file
+1. ✅ **Datastore + config** — schema (§6), `story_bank.yaml`, niche templates, resume file
    path config. Nothing works without this; build and sanity-check it first.
+   Implemented in `agent/config.py` (typed, validating `Settings`/`NicheStory` loaders)
+   and `agent/db.py` (schema init + seeded `send_config` + connection helper), with a
+   pytest suite in `tests/` and a manual sanity-check script at `scripts/init_db.py`.
 2. **Company sourcing** — start with manual CSV import (unblocks everything downstream
    immediately) then wire up YC/ProductHunt/Startup-India pulls.
 3. **Contact discovery** — Hunter.io free-tier integration behind the `EmailFinder`
