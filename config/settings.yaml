@@ -31,6 +31,13 @@ niches:
     - fintech
     - data_saas
     - ai_devtools
+  # Contact discovery (Hunter.io lookups) only runs for companies whose classified
+  # niche is in this list — conserves free-tier quota and scraping effort while
+  # Arjun's focus is consumer/marketplace firms. Company sourcing + classification
+  # still run against all niches so nothing is lost, it's just not looked up yet.
+  # Add fintech/data_saas/ai_devtools back here when ready to expand.
+  active_for_discovery:
+    - consumer
 
 send:
   start_daily_cap: 10

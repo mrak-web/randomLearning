@@ -23,6 +23,7 @@ in the review UI.
 | Daily volume | Start ~10–15/day, ramp up gradually (see §6) |
 | Follow-up cadence | 1 follow-up per contact, sent 5 business days after the initial email, then stop |
 | Niche priority on ties | Consumer/marketplace preferred (Arjun's stated preference) |
+| Active discovery scope | Contact discovery (Hunter.io lookups) restricted to `consumer`-niche companies for now (`niches.active_for_discovery` in settings.yaml). Fintech/data-SaaS/AI-devtools companies are still sourced and classified so no data is lost, just not looked up yet — expand the list when ready. |
 
 ## 3. Arjun's background → niche story bank
 
@@ -82,6 +83,11 @@ guessed or scraped address. Even though Arjun is targeting product roles specifi
 contact discovery deliberately does **not** just look for the most senior PM — it looks
 for whoever is most likely to actually reply:
 
+- **Niche-gated**: only runs against companies whose classified niche is in
+  `settings.yaml`'s `niches.active_for_discovery` (currently `consumer` only —
+  see §2). Fintech/data-SaaS/AI-devtools companies still get sourced and classified,
+  they just sit at `status=classified` without an API lookup spent on them until that
+  list is expanded.
 - **Role search priority: HR/Talent/Recruiting first, Product Manager second.**
   The finder API is queried for HR/Talent/People/Recruiting titles at the company first
   (highest reply-rate role for cold outreach); if none turn up, it falls back to
