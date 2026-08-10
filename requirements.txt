@@ -1,0 +1,7 @@
+# Module 1: datastore + config
+PyYAML==6.0.2
+
+# Later modules will add:
+# google-api-python-client, google-auth-httplib2, google-auth-oauthlib  (Gmail sending/tracking)
+# streamlit                                                             (review queue UI)
+# requests                                                              (Hunter.io / company sourcing APIs)

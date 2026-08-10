@@ -1,0 +1,17 @@
+Subject: Product role at {{company_name}} — payments/fintech background
+
+Hi {{contact_first_name}},
+
+I'm Arjun — I've spent time on the product side of FreeCharge working on BNPL
+user research and onboarding, and I'd love to be considered for a product
+role at {{company_name}}.
+
+{{story_paragraph}}
+
+I'm currently a Product Management Intern at Rapido, and would welcome the
+chance to bring that user-research-driven approach to {{company_name}}'s
+product team. My resume is attached — happy to share more context on any of
+the above.
+
+Best,
+{{sender_name}}

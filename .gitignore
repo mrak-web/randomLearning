@@ -1,0 +1,13 @@
+# Local state / secrets — never commit
+agent.db
+data/*
+!data/README.md
+.env
+credentials.json
+token.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/

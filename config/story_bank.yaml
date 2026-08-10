@@ -1,0 +1,36 @@
+# Niche -> resume bullets used to build the "why I'm relevant" paragraph in each
+# email template (module 5). Hand-written rather than auto-extracted from the resume —
+# see PROJECT.md §3 for why. Keep each bullet to one impact-led sentence; the template
+# stitches 2 together into a short paragraph.
+
+consumer:
+  label: "Consumer / Marketplace"
+  company_context: "Rapido (ride-hailing marketplace)"
+  bullets:
+    - "Launched an order-propagation layer giving nearest captains a 5s head start to accept, cutting post-acceptance cancellations 3% and lifting gross-to-net orders 2%"
+    - "Built a rejection-based nudge letting drivers set a preferred drop area, unlocking 3% new 'Go-to-area' drivers and increasing rides per rider by 11% for existing adopters"
+    - "Streamlined the reverse-bid flow so fare counter-offers reach customers before they abandon, lifting fulfillment ~2.5%"
+
+fintech:
+  label: "Fintech / Payments"
+  company_context: "FreeCharge (BNPL payments app)"
+  bullets:
+    - "Led user research with 75+ BNPL customers, synthesizing surveys and transaction data into personas and an insights database"
+    - "Identified language barriers as a major onboarding drop-off driver and proposed a Hindi-first flow, lifting first-action completion 8% in the test cohort"
+    - "Analyzed BNPL transaction behavior to surface fuel and e-commerce as under-penetrated, high-value verticals"
+
+data_saas:
+  label: "Data-heavy B2B SaaS"
+  company_context: "Indus Insights (analytics & consulting)"
+  bullets:
+    - "Integrated data from 3 disparate systems into a single SQL repository, enabling behavior analytics for 40k+ agents at a top US airline"
+    - "Used hypothesis-driven analysis and Power BI to uncover drivers of legacy-system reliance, enabling migration of 40% of workflows within a year"
+    - "Enabled migration of 550 agents (~70% active usage) by identifying early adopters across a 48k-user base"
+
+ai_devtools:
+  label: "AI / Dev-tools / Automation"
+  company_context: "personal projects + Indus Insights automation work"
+  bullets:
+    - "Engineered an AI-agentic browser extension to simulate real user journeys and validate chatbot logic, saving 50+ associate hours per quarter"
+    - "Built a GMAT Focus Edition simulator web app from scratch with 1K+ questions, timed mocks, and adaptive question pooling"
+    - "Replaced a fragmented stakeholder-vetting process with an automated Excel VBA workflow, cutting turnaround from 7 to 3 days"

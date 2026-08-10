@@ -1,0 +1,16 @@
+Subject: Product role at {{company_name}} — a fellow marketplace builder
+
+Hi {{contact_first_name}},
+
+I'm Arjun — currently a Product Management Intern at Rapido, working on the
+marketplace/matching side of the business. I've been following {{company_name}}
+and would love to be considered for a product role there.
+
+{{story_paragraph}}
+
+I'd welcome the chance to bring that same marketplace-growth thinking to
+{{company_name}}. My resume is attached — happy to share more context on any
+of the above.
+
+Best,
+{{sender_name}}
