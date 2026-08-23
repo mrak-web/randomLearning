@@ -45,6 +45,7 @@ from agent.db import connect, init_db, table_counts
 from agent.email_generation import (
     EmailGenerationError,
     GenerationStats,
+    build_story_bullets,
     build_story_paragraph,
     generate_pending_emails,
     get_first_name,
@@ -130,6 +131,7 @@ __all__ = [
     "encode_message",
     "EmailGenerationError",
     "GenerationStats",
+    "build_story_bullets",
     "build_story_paragraph",
     "generate_pending_emails",
     "get_first_name",

@@ -8,7 +8,9 @@ import pytest
 from agent.config import NicheStory, load_settings, load_story_bank
 from agent.db import connect, init_db
 from agent.email_generation import (
+    RESUME_STORY_NICHE,
     EmailGenerationError,
+    build_story_bullets,
     build_story_paragraph,
     generate_pending_emails,
     get_first_name,
@@ -80,6 +82,35 @@ def test_build_story_paragraph_raises_on_empty_bullets():
 
 
 # ---------------------------------------------------------------------------
+# build_story_bullets
+# ---------------------------------------------------------------------------
+
+
+def test_build_story_bullets_renders_dash_lines_by_default(story_bank):
+    bullets = build_story_bullets(story_bank["consumer"])
+
+    lines = bullets.split("\n")
+    assert len(lines) == 2
+    assert all(line.startswith("- ") for line in lines)
+    # Only the first two of the three consumer bullets should appear.
+    assert "reverse-bid" not in bullets
+
+
+def test_build_story_bullets_respects_num_bullets(story_bank):
+    bullets = build_story_bullets(story_bank["consumer"], num_bullets=1)
+
+    assert len(bullets.split("\n")) == 1
+    assert bullets.startswith("- ")
+
+
+def test_build_story_bullets_raises_on_empty_bullets():
+    empty_story = NicheStory(key="consumer", label="x", company_context="x", bullets=[])
+
+    with pytest.raises(EmailGenerationError, match="no bullets"):
+        build_story_bullets(empty_story)
+
+
+# ---------------------------------------------------------------------------
 # parse_template
 # ---------------------------------------------------------------------------
 
@@ -125,7 +156,9 @@ def test_render_email_substitutes_all_placeholders(story_bank):
         sender_display_name="Arjun Khanna",
     )
 
-    assert "Meesho" in subject
+    # Subject is a fixed personal-branding line (2026-08-23 redesign) -- no
+    # per-company placeholder in it anymore, unlike the body.
+    assert subject == "Seeking Product Roles | Rapido (Marketplace) | Ashoka University"
     assert "Meesho" in body
     assert "Priya" in body
     assert "Arjun Khanna" in body
@@ -203,7 +236,8 @@ def test_generate_pending_emails_creates_draft(settings, story_bank):
     assert row["kind"] == "initial"
     assert row["status"] == "pending_review"
     assert row["attached_resume"] == 1
-    assert "Meesho" in row["subject"]
+    assert row["subject"] == "Seeking Product Roles | Rapido (Marketplace) | Ashoka University"
+    assert "Meesho" in row["body"]
     assert "Priya" in row["body"]
 
 
@@ -305,9 +339,15 @@ def test_generate_pending_emails_works_across_all_four_niches(settings, story_ba
             conn, story_bank, settings.templates_dir, "Arjun Khanna", True
         )
 
-        niches_generated = {
-            row["niche"] for row in conn.execute("SELECT niche FROM email_queue").fetchall()
-        }
+        rows = conn.execute("SELECT niche, subject, body FROM email_queue").fetchall()
 
+    niches_generated = {row["niche"] for row in rows}
     assert stats.generated == 4
     assert niches_generated == {"consumer", "fintech", "data_saas", "ai_devtools"}
+
+    # niche is still recorded per-row, but every email leads with the Rapido story
+    # regardless of niche (2026-08-23 decision) -- same subject, same bullets.
+    for row in rows:
+        assert row["subject"] == "Seeking Product Roles | Rapido (Marketplace) | Ashoka University"
+        assert "Rapido" in row["body"]
+        assert story_bank[RESUME_STORY_NICHE].bullets[0] in row["body"]

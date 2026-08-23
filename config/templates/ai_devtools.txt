@@ -1,17 +1,17 @@
-Subject: Product role at {{company_name}} — building with AI and automation
+Subject: Seeking Product Roles | Rapido (Marketplace) | Ashoka University
 
 Hi {{contact_first_name}},
 
-I'm Arjun — outside my core product work I've built AI-agentic tooling and
-automation projects end to end, and I'd love to be considered for a product
-role at {{company_name}}.
+I don't want to take up too much of your time, so I'll keep this quick. I'm
+Arjun — I'm currently a Product Intern at Rapido, on the marketplace team,
+where I work on matching. I'm exploring product roles and would love to be
+considered for one at {{company_name}}.
 
-{{story_paragraph}}
+A couple of quick highlights from Rapido:
+{{story_bullets}}
 
-I'm currently a Product Management Intern at Rapido, and would welcome the
-chance to bring that same builder's instinct to {{company_name}}'s product
-team. My resume is attached — happy to share more context on any of the
-above.
+Would love to hear back if there are any opportunities you think I'd be a
+fit for. I've attached my resume for your reference.
 
 Best,
 {{sender_name}}

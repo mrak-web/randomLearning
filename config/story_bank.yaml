@@ -6,10 +6,12 @@
 consumer:
   label: "Consumer / Marketplace"
   company_context: "Rapido (ride-hailing marketplace)"
+  # Kept short/punchy on purpose — used as brief bullet-point lines in the email
+  # body (agent.email_generation.build_story_bullets), not stitched into prose.
   bullets:
-    - "Launched an order-propagation layer giving nearest captains a 5s head start to accept, cutting post-acceptance cancellations 3% and lifting gross-to-net orders 2%"
-    - "Built a rejection-based nudge letting drivers set a preferred drop area, unlocking 3% new 'Go-to-area' drivers and increasing rides per rider by 11% for existing adopters"
-    - "Streamlined the reverse-bid flow so fare counter-offers reach customers before they abandon, lifting fulfillment ~2.5%"
+    - "Launched an order-propagation feature that cut ride cancellations 3% and lifted net orders 2%"
+    - "Built a driver-side nudge feature that grew rides per rider 11% for existing users"
+    - "Streamlined the reverse-bid flow, lifting order fulfillment ~2.5%"
 
 fintech:
   label: "Fintech / Payments"

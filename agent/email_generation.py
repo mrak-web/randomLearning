@@ -13,6 +13,14 @@ from pathlib import Path
 
 from agent.config import NicheStory
 
+# Every outreach email leads with the Rapido story regardless of the target
+# company's niche (Arjun's decision, 2026-08-23) -- it's his strongest, most
+# recent, most quantified experience. `niche` on the row still gates whether an
+# email generates at all (a company must be classified first) and is still
+# recorded on the email_queue row, it just no longer selects which story or
+# template content gets used.
+RESUME_STORY_NICHE = "consumer"
+
 
 class EmailGenerationError(Exception):
     """Raised when a template or story-bank entry can't be turned into a valid email."""
@@ -38,6 +46,19 @@ def build_story_paragraph(story: NicheStory, num_bullets: int = 2) -> str:
         else:
             sentences.append(f"I also {clause}.")
     return " ".join(sentences)
+
+
+def build_story_bullets(story: NicheStory, num_bullets: int = 2) -> str:
+    """Renders the first num_bullets story-bank bullets as short dash-prefixed
+    lines, for the brief bullet-point email format (2026-08-23) — kept separate
+    from build_story_paragraph (unused by templates now but still tested/kept
+    around) rather than replacing it, since the two produce genuinely different
+    shapes of text.
+    """
+    bullets = story.bullets[:num_bullets]
+    if not bullets:
+        raise EmailGenerationError(f"story bank entry '{story.key}' has no bullets")
+    return "\n".join(f"- {bullet}" for bullet in bullets)
 
 
 def parse_template(text: str) -> tuple[str, str]:
@@ -75,7 +96,7 @@ def render_email(
     context = {
         "company_name": company_name,
         "contact_first_name": get_first_name(contact_name),
-        "story_paragraph": build_story_paragraph(story),
+        "story_bullets": build_story_bullets(story),
         "sender_name": sender_display_name,
     }
     subject = _substitute(subject_template, context)
@@ -129,7 +150,7 @@ def generate_pending_emails(
             template_text,
             company_name=row["company_name"],
             contact_name=row["contact_name"],
-            story=story_bank[niche],
+            story=story_bank[RESUME_STORY_NICHE],
             sender_display_name=sender_display_name,
         )
 

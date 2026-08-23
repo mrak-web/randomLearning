@@ -186,13 +186,54 @@ Blinkit contacts correctly skipped — unclassified company, no niche template t
 ### 4.4 Email Generation
 
 - One template per niche (4 templates total), each with a placeholder for the
-  niche-specific story-bank paragraph (§3), company name, and contact first name.
+  company name, contact first name, and the story bullets (§3).
 - Resume attached as a **PDF** to every generated draft by default (converted once,
   up front, from the source `.docx` — see setup note below). `email_queue` stores an
   `attached_resume` flag per row so if a no-attachment variant is ever tried later for
   comparison, reply-rate differences are queryable rather than guessed at.
 - Output is a **draft**, not a sent email — written to the `email_queue` table with
   status `pending_review`. Nothing here touches the Gmail API.
+
+**Content redesign (2026-08-24).** Arjun rewrote the subject/body brief directly
+after testing the Streamlit review queue for the first time:
+
+- **Subject is now a fixed personal-branding line**, not per-company:
+  `"Seeking Product Roles | Rapido (Marketplace) | Ashoka University"` — no
+  `{{company_name}}` placeholder in it anymore (still appears in the body).
+- **Every email now leads with the Rapido story, regardless of the target
+  company's niche** (`RESUME_STORY_NICHE = "consumer"` in
+  `agent/email_generation.py`) — a deliberate simplification over the prior
+  per-niche story swap (fintech targets got FreeCharge bullets, data/SaaS got
+  Indus Insights, AI/dev-tools got personal projects). Rapido is Arjun's
+  strongest, most recent, most quantified experience, and leading with it
+  everywhere was judged better than diluting across 4 different pitches.
+  `niche` is still required (a company must be classified before an email
+  generates) and still recorded on the `email_queue` row — it just no longer
+  selects which story or template content is used.
+- **Body is now: a "won't take much of your time" opener → one-line self-intro
+  (Product Intern at Rapido, marketplace team, matching) → interest line
+  naming the target company → 2 short bullet points → a closing ask + resume
+  mention.** New `build_story_bullets` (agent/email_generation.py) renders
+  bullets as short dash-prefixed lines instead of `build_story_paragraph`'s
+  stitched prose — the two are kept as separate functions (the old one still
+  tested/working, just no longer wired into `render_email`) since they produce
+  genuinely different shapes of text, not interchangeable via a flag.
+  `story_bank.yaml`'s consumer bullets were tightened to short one-liners to
+  suit bullet-point display (the fintech/data_saas/ai_devtools bullets are
+  unused by templates now but left in place, not deleted).
+- **All 4 template files now hold identical content** (same subject, same
+  intro, same Rapido bullets) — a deliberate, low-risk choice over collapsing
+  the per-niche template lookup in code: `generate_pending_emails` still
+  resolves `templates_dir / f"{niche}.txt"` unchanged, it's just that all 4
+  files render the same text now. Editing the wording means editing all 4
+  files identically; a single-shared-template refactor is a reasonable future
+  cleanup if that duplication becomes a real maintenance problem.
+- Regenerated all pending drafts against the new template (the 9 real Apollo-
+  sourced drafts from §4.3.1, plus 2 older dev/test-fixture drafts predating
+  this session that were sitting in the queue) — verified a real rendered
+  draft matches the brief exactly. One pre-existing `approved` row (a Zepto
+  draft from 2026-08-10, clearly old dev/test data) was left untouched rather
+  than touched without being asked.
 
 **Setup note**: the resume you shared is a `.docx`
 (`Arjun_Khanna_CV_V4.docx`). It needs a one-time export to PDF (Word/Google Docs →
