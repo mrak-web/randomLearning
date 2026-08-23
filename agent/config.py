@@ -63,6 +63,21 @@ class FollowupConfig:
 
 
 @dataclass(frozen=True)
+class LinkedInJobsConfig:
+    keywords: list[str]
+    location: str
+    date_posted: str
+    limit: int
+    output_dir: Path
+
+
+@dataclass(frozen=True)
+class LinkedInPostsConfig:
+    posted_limit: str
+    limit: int
+
+
+@dataclass(frozen=True)
 class Settings:
     resume_pdf_path: Path
     attach_resume_by_default: bool
@@ -79,6 +94,8 @@ class Settings:
     story_bank_path: Path
     templates_dir: Path
     niche_keywords_path: Path
+    linkedin_jobs: LinkedInJobsConfig
+    linkedin_posts: LinkedInPostsConfig
 
 
 def load_settings(path: Path | None = None) -> Settings:
@@ -108,6 +125,9 @@ def load_settings(path: Path | None = None) -> Settings:
             "niches.active_for_discovery contains niches not listed in niches.order: "
             f"{sorted(unknown_active)}"
         )
+
+    linkedin_jobs = _require(raw, "linkedin_jobs", str(path))
+    linkedin_posts = _require(raw, "linkedin_posts", str(path))
 
     return Settings(
         resume_pdf_path=_resolve_path(_require(resume, "pdf_path", f"{path} resume")),
@@ -151,6 +171,19 @@ def load_settings(path: Path | None = None) -> Settings:
         templates_dir=_resolve_path(_require(paths, "templates_dir", f"{path} paths")),
         niche_keywords_path=_resolve_path(
             _require(paths, "niche_keywords_path", f"{path} paths")
+        ),
+        linkedin_jobs=LinkedInJobsConfig(
+            keywords=list(_require(linkedin_jobs, "keywords", f"{path} linkedin_jobs")),
+            location=_require(linkedin_jobs, "location", f"{path} linkedin_jobs"),
+            date_posted=_require(linkedin_jobs, "date_posted", f"{path} linkedin_jobs"),
+            limit=int(_require(linkedin_jobs, "limit", f"{path} linkedin_jobs")),
+            output_dir=_resolve_path(
+                _require(linkedin_jobs, "output_dir", f"{path} linkedin_jobs")
+            ),
+        ),
+        linkedin_posts=LinkedInPostsConfig(
+            posted_limit=_require(linkedin_posts, "posted_limit", f"{path} linkedin_posts"),
+            limit=int(_require(linkedin_posts, "limit", f"{path} linkedin_posts")),
         ),
     )
 

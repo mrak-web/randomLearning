@@ -69,3 +69,35 @@ paths:
   story_bank_path: "./config/story_bank.yaml"
   templates_dir: "./config/templates"
   niche_keywords_path: "./config/niche_keywords.yaml"
+
+linkedin_jobs:
+  # Standalone job-search tool (separate from the cold-email pipeline above) — see
+  # PROJECT.md's "LinkedIn Job Lookup" section. Searches LinkedIn's public, logged-out
+  # jobs search page via an Apify Actor, so Arjun's own LinkedIn account/session is
+  # never used. Output is an Excel file only; nothing here touches agent.db.
+  keywords:
+    - "Product Manager"
+    - "Associate Product Manager"
+    - "APM"
+    - "Product Lead"
+    - "Growth Product Manager"
+  location: "India"
+  date_posted: pastWeek     # anyTime | past24Hours | pastWeek | pastMonth
+  # Combined cap across ALL keywords above (not per-keyword) — keeps Apify spend
+  # predictable regardless of how many keywords are configured.
+  limit: 100
+  output_dir: "./data"
+
+linkedin_posts:
+  # Second, noisier data source alongside linkedin_jobs above: LinkedIn posts where
+  # someone personally announces a hiring need (a PM or HR person posting "we're
+  # hiring a PM..."), which the Jobs-tab search above never sees. Reuses
+  # linkedin_jobs.keywords/location for query text and relevance filtering — no
+  # separate keyword list to keep in sync. See PROJECT.md §8.1 for why this needs a
+  # client-side relevance filter (hiring-intent phrase + author headline role-signal)
+  # on top of the Actor's own loose search-relevance matching.
+  posted_limit: month   # any | 1h | 24h | week | month | 3months | 6months | year
+  # Combined RAW-fetch cap across all queries (this is what drives Apify spend —
+  # the relevance filter runs after fetching, so the final sheet will have fewer
+  # rows than this).
+  limit: 50

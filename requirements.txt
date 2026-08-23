@@ -7,6 +7,9 @@ requests==2.32.3
 # Module 6: review queue UI
 streamlit==1.38.0
 
+# LinkedIn job lookup (standalone tool, not part of the pipeline above): Excel export
+openpyxl==3.1.5
+
 # Module 7: scheduled sending (Gmail API)
 google-api-python-client==2.198.0
 google-auth-httplib2==0.4.1

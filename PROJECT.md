@@ -317,6 +317,101 @@ send_config    daily_cap, ramp_step, ramp_ceiling    -- single-row config table
 Each module is runnable and testable in isolation against the shared SQLite DB before
 the next one is built — no module should require a later one to exist to be verified.
 
+## 8.1 LinkedIn Job Lookup (standalone, separate from the pipeline above)
+
+A second, independent tool: search LinkedIn job postings and export matches to an
+Excel file. Built alongside the pipeline but deliberately **not wired into it** —
+output is a spreadsheet Arjun works from by hand, not `agent.db` rows.
+
+- **Stays logged out of LinkedIn.** Uses the Apify Actor
+  `curious_coder/linkedin-jobs-scraper`, which scrapes LinkedIn's public jobs-search
+  page (the same one a signed-out visitor sees) via Apify's own infrastructure — no
+  cookies, no account, so Arjun's personal LinkedIn login/session is never touched and
+  carries none of the ToS/ban risk that account-based scraping would (see §7's
+  LinkedIn risk note, which is about *account* scraping specifically).
+- **Search scope does not auto-parse the resume.** Same discipline as the
+  hand-curated `story_bank.yaml` (§3): a fixed list of PM-track job titles is
+  searched instead — "Product Manager", "Associate Product Manager", "APM",
+  "Product Lead", "Growth Product Manager" (`linkedin_jobs.keywords` in
+  `settings.yaml`).
+- **Scope locked in (2026-08-23)**: location = all of India in one search (not split
+  by city), `datePosted = pastWeek`, and a combined cap of 100 postings per run
+  across all keywords together — keeps Apify spend predictable (~$0.002/result, so
+  ~$0.20/run at the cap) regardless of how many keywords are configured.
+- Output columns: Company, Job Title, Job Link, Contact Name, Contact Title, Contact
+  LinkedIn Profile, Other Contact Details (any email regex-matched out of the job
+  description text), Location, Posted At, Applicants. LinkedIn doesn't always surface
+  a job poster — expect `Contact Name` blank on a meaningful fraction of rows, not a
+  bug.
+- Implemented in `agent/linkedin_jobs.py` (`LinkedInJobSearchClient` ABC +
+  `ApifyLinkedInJobSearch` — same swappable-interface pattern as
+  `EmailFinder`/`CompanySource`/`EmailSender` — calling Apify's
+  `run-sync-get-dataset-items` REST endpoint directly via `requests`, plus an
+  `openpyxl`-based Excel writer) and `scripts/find_linkedin_jobs.py` as the CLI entry
+  point (reads `APIFY_API_TOKEN` from the environment — never committed, same
+  pattern as `HUNTER_API_KEY`). Output field names were verified against a live
+  sample Actor run rather than guessed from the README.
+
+### 8.1.1 Hiring Posts (second source, same workbook)
+
+LinkedIn's formal Jobs tab (above) misses postings that never got filed as a proper
+job listing — a PM or HR person just announcing "we're hiring" in a regular post.
+Added as a second source into the same Excel file rather than folded into the Jobs
+sheet, because the data shape is genuinely different and much noisier:
+
+- Uses a second Apify Actor, `harvestapi/linkedin-post-search` — also public,
+  logged-out, no cookies/account, same no-ban-risk property as the Jobs Actor.
+- **No clean job-title/company/location field exists in post data** — it's free
+  text. Manual sampling during design surfaced recruiter-agency blasts, job-
+  aggregator bot accounts (generic "N followers" as their whole profile), and
+  candidates-seeking-work posts mixed in with genuine hiring announcements.
+- Two client-side filters cut that noise (in `filter_relevant_posts`,
+  `agent/linkedin_posts.py`) — deliberately client-side rather than via the Actor's
+  own `authorKeywords` input, which zeroed out real results in manual testing:
+  - `looks_like_hiring_post`: the post's **opening** (first 300 chars) must contain
+    both a hiring-intent phrase ("hiring", "looking for a", "referral", …) and one
+    of the configured job-title keywords (reused from `linkedin_jobs.keywords`).
+    Windowed to the opening specifically — an early version matched the title
+    keyword anywhere in the post and let through a Frontend Developer hiring post
+    that only mentioned "product managers" incidentally deep in the body
+    ("...you'll work with backend engineers and product managers"); windowing to
+    where the actual role is announced fixed that in a live re-run (18 → 5 results,
+    all genuinely on-target, confirmed by hand against a real Apify run 2026-08-23).
+  - `author_matches_role_signal`: the post author's headline must match the same
+    HR/Product role-signal keywords already used for contact discovery
+    (`agent/contact_discovery.ROLE_KEYWORDS`) — this alone dropped the bot/aggregator
+    accounts in testing (no real headline to match against).
+  - Not perfect precision by design (a keyword heuristic, not NLP/LLM extraction —
+    same discipline as the rule-based company classifier in §4.2) — the output is
+    small enough for Arjun to skim and judge, consistent with this whole project's
+    human-in-the-loop philosophy.
+- Scope locked in with the Jobs search: `posted_limit = month` ("past week" returned
+  zero results in manual testing — LinkedIn's post search has no reliable recency
+  density at that window), combined RAW-fetch cap of 50 posts across all queries
+  (this cap drives Apify spend; the relevance filter above runs after fetching, so
+  the final sheet has fewer rows than 50).
+- Output columns (second sheet, "Hiring Posts"): Contact Name, Contact Headline,
+  Contact LinkedIn Profile, Company (if detected — only populated when LinkedIn
+  tagged a company mention in the post), Post Excerpt (truncated to 600 chars), Post
+  Link, Posted At.
+- Implemented in `agent/linkedin_posts.py` (mirrors `linkedin_jobs.py`'s
+  `LinkedInPostSearchClient` ABC / `ApifyLinkedInPostSearch` / Excel-sheet pattern)
+  and `agent/linkedin_export.py` (`write_linkedin_excel` — combines both sources'
+  sheets into one workbook; two sheets, not one merged table, since forcing the
+  structured Jobs columns and the free-text Posts columns into a shared schema would
+  mean misleading blanks or guessed values on one side or the other).
+  `scripts/find_linkedin_jobs.py` runs both searches and writes the combined file.
+  33 tests across `tests/test_linkedin_posts.py` and `tests/test_linkedin_export.py`
+  (fake client/session, no real Apify credits spent in tests).
+
+**Gotcha found and fixed during a real end-to-end run (2026-08-23)**: Apify's
+`run-sync-get-dataset-items` endpoint replies **HTTP 201**, not 200, on a normal
+successful run (it's creating a run resource, not just returning data) — both
+Actor clients originally only accepted 200 and raised on every real call. Fixed to
+accept any 2xx. Both the Jobs search and the Hiring Posts search (with the filter
+above) have now been run for real against the live API and produce a two-sheet
+workbook with genuinely relevant rows in both sheets.
+
 ## 9. Explicitly out of scope (for now)
 
 - Fully autonomous sending (review step is permanent, not a v1-only training wheel).

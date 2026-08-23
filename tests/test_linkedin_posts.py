@@ -1,0 +1,312 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import openpyxl
+import pytest
+
+from agent.linkedin_posts import (
+    ApifyLinkedInPostSearch,
+    HiringPost,
+    LinkedInPostSearchClient,
+    LinkedInPostSearchError,
+    author_matches_role_signal,
+    build_post_search_queries,
+    filter_relevant_posts,
+    looks_like_hiring_post,
+    populate_hiring_posts_sheet,
+    search_hiring_posts,
+    write_hiring_posts_excel,
+)
+
+TITLE_KEYWORDS = ["Product Manager", "APM"]
+
+# ---------------------------------------------------------------------------
+# Fakes standing in for the real HTTP layer / a real LinkedInPostSearchClient
+# ---------------------------------------------------------------------------
+
+
+class FakeResponse:
+    def __init__(self, status_code: int = 200, json_data=None):
+        self.status_code = status_code
+        self._json_data = json_data if json_data is not None else []
+
+    def json(self):
+        return self._json_data
+
+
+class FakeSession:
+    def __init__(self, response_by_query: dict):
+        self._response_by_query = response_by_query
+        self.calls: list[dict] = []
+
+    def post(self, url, params=None, json=None, timeout=None):
+        self.calls.append({"url": url, "params": params, "json": json, "timeout": timeout})
+        query = json["searchQueries"][0]
+        result = self._response_by_query[query]
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+
+def raw_item(
+    post_id: str,
+    content: str = "We're hiring a Product Manager, DM for referral.",
+    author_name: str = "Jane Doe",
+    author_info: str = "Product Manager @ Acme",
+    link: str | None = None,
+    company_name: str | None = "Acme",
+) -> dict:
+    attributes = [{"company": {"name": company_name}}] if company_name else []
+    return {
+        "id": post_id,
+        "content": content,
+        "author": {
+            "name": author_name,
+            "info": author_info,
+            "linkedinUrl": f"https://in.linkedin.com/in/{author_name.replace(' ', '-').lower()}",
+        },
+        "linkedinUrl": link or f"https://www.linkedin.com/posts/{post_id}",
+        "postedAt": {"date": "2026-08-20"},
+        "contentAttributes": attributes,
+    }
+
+
+class FakePostSearchClient(LinkedInPostSearchClient):
+    def __init__(self, responses: dict):
+        self.responses = responses
+        self.calls: list[tuple] = []
+
+    def search(self, query, posted_limit, limit):
+        self.calls.append((query, posted_limit, limit))
+        result = self.responses.get(query, [])
+        if isinstance(result, Exception):
+            raise result
+        return result[:limit]
+
+
+def hiring_post(
+    post_id: str,
+    link: str | None = None,
+    content: str = "We're hiring a Product Manager, DM for referral.",
+    author_headline: str = "Product Manager @ Acme",
+) -> HiringPost:
+    return HiringPost(
+        post_id=post_id,
+        author_name="Jane Doe",
+        author_headline=author_headline,
+        author_profile_url="https://in.linkedin.com/in/jane-doe",
+        content=content,
+        link=link or f"https://www.linkedin.com/posts/{post_id}",
+        posted_at="2026-08-20",
+        company_name="Acme",
+    )
+
+
+# ---------------------------------------------------------------------------
+# build_post_search_queries
+# ---------------------------------------------------------------------------
+
+
+def test_build_post_search_queries():
+    queries = build_post_search_queries(["Product Manager", "APM"], "India")
+    assert queries == ['"Product Manager" hiring India', '"APM" hiring India']
+
+
+# ---------------------------------------------------------------------------
+# looks_like_hiring_post / author_matches_role_signal / filter_relevant_posts
+# ---------------------------------------------------------------------------
+
+
+def test_looks_like_hiring_post_requires_both_intent_and_title():
+    assert looks_like_hiring_post(
+        "We're hiring a Product Manager for our team", TITLE_KEYWORDS
+    )
+    # Hiring intent but no matching title keyword.
+    assert not looks_like_hiring_post("We're hiring a Sales Executive", TITLE_KEYWORDS)
+    # Title keyword present but no hiring-intent phrase (e.g. a candidate's own bio).
+    assert not looks_like_hiring_post(
+        "I am a Product Manager with 5 years experience", TITLE_KEYWORDS
+    )
+    assert not looks_like_hiring_post(None, TITLE_KEYWORDS)
+
+
+def test_looks_like_hiring_post_ignores_incidental_mention_deep_in_body():
+    # Real example from manual testing: a recruiter's post hiring a Frontend
+    # Developer that happens to mention "product managers" as a collaborating role
+    # deep in the body -- should NOT count as a Product Manager hiring post.
+    content = (
+        "We're Hiring! Frontend Developer (React & Modern JavaScript)\n"
+        + ("Filler text to push past the headline window. " * 10)
+        + "You'll work directly with UI/UX designers, backend engineers, and "
+        "product managers to turn wireframes into fast, accessible features."
+    )
+    assert not looks_like_hiring_post(content, TITLE_KEYWORDS)
+
+
+def test_author_matches_role_signal():
+    assert author_matches_role_signal("Product Manager @ Acme")
+    assert author_matches_role_signal("Talent Acquisition Specialist")
+    assert author_matches_role_signal("Founder & CEO")
+    assert not author_matches_role_signal("159 followers")
+    assert not author_matches_role_signal(None)
+
+
+def test_filter_relevant_posts_requires_both_conditions():
+    posts = [
+        hiring_post("relevant"),  # hiring intent + title + product headline -> keep
+        hiring_post(
+            "wrong_role", content="We're hiring a Sales Executive"
+        ),  # no title match -> drop
+        hiring_post(
+            "bot_account", author_headline="159 followers"
+        ),  # no author role signal -> drop
+        hiring_post(
+            "candidate_bio",
+            content="I am a Product Manager looking for my next role",
+            author_headline="Product Manager @ Acme",
+        ),  # no hiring intent -> drop
+    ]
+
+    filtered = filter_relevant_posts(posts, TITLE_KEYWORDS)
+
+    assert [p.post_id for p in filtered] == ["relevant"]
+
+
+# ---------------------------------------------------------------------------
+# ApifyLinkedInPostSearch
+# ---------------------------------------------------------------------------
+
+
+def test_apify_post_search_requires_api_token():
+    with pytest.raises(LinkedInPostSearchError, match="token"):
+        ApifyLinkedInPostSearch(api_token="")
+
+
+def test_apify_post_search_parses_items():
+    session = FakeSession(
+        {
+            '"Product Manager" hiring India': FakeResponse(
+                json_data=[raw_item("post1"), raw_item("post2", company_name=None)]
+            )
+        }
+    )
+    client = ApifyLinkedInPostSearch(api_token="tok", session=session)
+
+    results = client.search('"Product Manager" hiring India', "month", 10)
+
+    assert len(results) == 2
+    assert results[0].author_name == "Jane Doe"
+    assert results[0].company_name == "Acme"
+    assert results[1].company_name is None
+
+    call = session.calls[0]
+    assert call["params"] == {"token": "tok"}
+    assert call["json"]["searchQueries"] == ['"Product Manager" hiring India']
+    assert call["json"]["postedLimit"] == "month"
+    assert call["json"]["maxPosts"] == 10
+
+
+def test_apify_post_search_zero_limit_short_circuits():
+    session = FakeSession({})
+    client = ApifyLinkedInPostSearch(api_token="tok", session=session)
+
+    assert client.search('"Product Manager" hiring India', "month", 0) == []
+    assert session.calls == []
+
+
+def test_apify_post_search_non_200_raises():
+    session = FakeSession({'"Product Manager" hiring India': FakeResponse(status_code=500)})
+    client = ApifyLinkedInPostSearch(api_token="tok", session=session)
+
+    with pytest.raises(LinkedInPostSearchError, match="HTTP 500"):
+        client.search('"Product Manager" hiring India', "month", 10)
+
+
+# ---------------------------------------------------------------------------
+# search_hiring_posts
+# ---------------------------------------------------------------------------
+
+
+def test_search_hiring_posts_caps_combined_total():
+    client = FakePostSearchClient(
+        {
+            "q1": [hiring_post("p1"), hiring_post("p2"), hiring_post("p3")],
+            "q2": [hiring_post("p4"), hiring_post("p5")],
+        }
+    )
+
+    results = search_hiring_posts(client, queries=["q1", "q2"], posted_limit="month", total_limit=4)
+
+    assert [p.post_id for p in results] == ["p1", "p2", "p3", "p4"]
+    assert client.calls == [("q1", "month", 4), ("q2", "month", 1)]
+
+
+def test_search_hiring_posts_dedupes_by_link():
+    shared = hiring_post("shared", link="https://www.linkedin.com/posts/shared")
+    client = FakePostSearchClient(
+        {
+            "q1": [shared],
+            "q2": [shared, hiring_post("unique")],
+        }
+    )
+
+    results = search_hiring_posts(client, queries=["q1", "q2"], posted_limit="month", total_limit=10)
+
+    assert [p.post_id for p in results] == ["shared", "unique"]
+
+
+# ---------------------------------------------------------------------------
+# write_hiring_posts_excel / populate_hiring_posts_sheet
+# ---------------------------------------------------------------------------
+
+
+def test_write_hiring_posts_excel_round_trips(tmp_path: Path):
+    posts = [
+        HiringPost(
+            post_id="post1",
+            author_name="Jane Doe",
+            author_headline="Product Manager @ Acme",
+            author_profile_url="https://in.linkedin.com/in/jane-doe",
+            content="We're hiring a Product Manager, DM for referral." * 20,
+            link="https://www.linkedin.com/posts/post1",
+            posted_at="2026-08-20",
+            company_name="Acme",
+        )
+    ]
+
+    output_path = tmp_path / "posts.xlsx"
+    write_hiring_posts_excel(posts, output_path)
+
+    workbook = openpyxl.load_workbook(output_path)
+    sheet = workbook.active
+    assert sheet.title == "Hiring Posts"
+
+    header = [cell.value for cell in sheet[1]]
+    assert header == [
+        "Contact Name",
+        "Contact Headline",
+        "Contact LinkedIn Profile",
+        "Company (if detected)",
+        "Post Excerpt",
+        "Post Link",
+        "Posted At",
+    ]
+
+    row = [cell.value for cell in sheet[2]]
+    assert row[0] == "Jane Doe"
+    assert row[3] == "Acme"
+    assert row[4].endswith("…")  # long content gets truncated with an ellipsis
+    assert len(row[4]) <= 601
+
+    assert sheet.cell(row=2, column=3).hyperlink.target == "https://in.linkedin.com/in/jane-doe"
+    assert sheet.cell(row=2, column=6).hyperlink.target == "https://www.linkedin.com/posts/post1"
+
+
+def test_write_hiring_posts_excel_empty_list_still_writes_header(tmp_path: Path):
+    output_path = tmp_path / "posts.xlsx"
+    write_hiring_posts_excel([], output_path)
+
+    workbook = openpyxl.load_workbook(output_path)
+    sheet = workbook.active
+    assert sheet.max_row == 1
