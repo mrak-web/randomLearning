@@ -19,8 +19,9 @@ The output workbook has two sheets:
     match score, not an LLM call, so this costs nothing beyond the Apify scrape (see
     agent/resume_match.py).
   - "Hiring Posts": PM/HR people personally announcing a hiring need in a regular
-    LinkedIn post — noisier, free-text data, already filtered for relevance (see
-    agent/linkedin_posts.py's filter_relevant_posts) but still worth a human skim.
+    LinkedIn post — noisier, free-text data, already filtered for relevance and
+    seniority (see agent/linkedin_posts.py's filter_relevant_posts) but still worth
+    a human skim.
 """
 
 from __future__ import annotations
@@ -98,7 +99,12 @@ def main() -> None:
         posted_limit=posts_cfg.posted_limit,
         total_limit=posts_cfg.limit,
     )
-    hiring_posts = filter_relevant_posts(raw_posts, jobs_cfg.keywords)
+    hiring_posts = filter_relevant_posts(
+        raw_posts,
+        jobs_cfg.keywords,
+        resume_profile.seniority_mismatch_keywords,
+        resume_profile.total_experience_years(),
+    )
 
     write_linkedin_excel(job_postings, hiring_posts, output_path)
 

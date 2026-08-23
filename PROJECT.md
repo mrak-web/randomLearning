@@ -422,16 +422,25 @@ sheet, because the data shape is genuinely different and much noisier:
 `run-sync-get-dataset-items` endpoint replies **HTTP 201**, not 200, on a normal
 successful run (it's creating a run resource, not just returning data) — both
 Actor clients originally only accepted 200 and raised on every real call. Fixed to
-accept any 2xx. Both the Jobs search and the Hiring Posts search (with the filter
-above) have now been run for real against the live API twice and produce a
-two-sheet workbook with genuinely relevant rows in both sheets. On the second run
-(broader queries, 100-post cap), Hiring Posts happened to surface recruiter-agency
-posts rather than founder/individual-hiring-manager posts — still genuine hiring
-announcements, not noise, but a reminder that which 5ish posts clear the filter
-varies run to run. That run also surfaced a real gap: **Hiring Posts has no
-seniority filter** (an "8-12 Years" listing passed straight through) — the Jobs
-sheet's `seniority_mismatch_keywords` check (§8.1.2) isn't applied there yet;
-flagged to Arjun as a possible fast-follow, not yet built.
+accept any 2xx.
+
+**Hiring Posts seniority filtering (added 2026-08-23, in two passes).** A live run
+surfaced an "8-12 Years" listing that slipped through the relevance filter. First
+pass added `has_seniority_mismatch` — a keyword check reusing
+`seniority_mismatch_keywords` from the resume profile — but a second live run
+showed the same "8-12 Years" post *still* getting through: that listing names no
+seniority *word* ("Senior", "Principal", …), only a numeric bar, which a keyword
+check can't catch. Second pass added `has_experience_gap`, reusing
+`agent.resume_match.extract_min_years_required` directly (not re-implemented) to
+drop posts whose stated minimum-years bar exceeds Arjun's actual experience by more
+than 3 years. A third live run confirmed the fix — 100 raw posts fetched, 0 passed
+the relevance filter that run (an empty "Hiring Posts" sheet, not a crash; workbook
+still wrote cleanly with all 100 Jobs rows intact). Zero results is consistent with
+the volatility already noted above (5 → 2 → 0 matches across four same-day runs
+with a shrinking, more accurate filter each time) rather than a new bug — LinkedIn's
+post-search index shifts between runs, and this stage was already known to return
+few results. Both Jobs and Hiring Posts have now been run for real against the live
+API multiple times.
 
 ### 8.1.2 Resume Match Scoring (Jobs sheet only)
 

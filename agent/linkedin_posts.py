@@ -11,7 +11,7 @@ during design turned up recruiter-agency blasts, job-aggregator bot accounts, an
 candidates-seeking-work posts mixed in with genuine hiring posts, alongside real
 hits (e.g. an actual PM posting a referral link for their own team's open role).
 
-Two client-side filters cut that noise (applied in filter_relevant_posts, not via
+Four client-side filters cut that noise (applied in filter_relevant_posts, not via
 the Actor's own `authorKeywords` input — that parameter zeroed out real results in
 manual testing and its exact matching semantics aren't documented, so filtering
 ourselves is more verifiable):
@@ -22,6 +22,14 @@ ourselves is more verifiable):
     already used for contact discovery (agent/contact_discovery.ROLE_KEYWORDS) —
     this alone dropped two bot/aggregator accounts (generic "N followers" author
     info, no real headline) in manual testing
+  - the post's text must not contain a seniority-mismatch keyword ("senior",
+    "principal", …) from the resume profile — mirrors the Jobs sheet's seniority
+    dimension (agent.resume_match.score_seniority)
+  - the post's text must not state a minimum-years bar Arjun falls clearly short of
+    (mirrors agent.resume_match.score_experience/extract_min_years_required, reused
+    directly rather than re-implemented) — added after a real run let an "8-12
+    Years" listing through: it named no seniority *word*, only a numeric bar, which
+    the keyword check alone can't catch
 """
 
 from __future__ import annotations
@@ -36,6 +44,7 @@ from openpyxl import Workbook
 
 from agent.contact_discovery import ROLE_KEYWORDS
 from agent.linkedin_jobs import autosize_columns
+from agent.resume_match import extract_min_years_required
 
 APIFY_RUN_SYNC_URL_TEMPLATE = "https://api.apify.com/v2/acts/{actor_slug}/run-sync-get-dataset-items"
 
@@ -117,22 +126,77 @@ def author_matches_role_signal(headline: str | None) -> bool:
     )
 
 
+def has_seniority_mismatch(
+    content: str | None, seniority_mismatch_keywords: Iterable[str]
+) -> bool:
+    """True if the post's full text contains a seniority-title word above Arjun's
+    current target ("Senior", "Principal", …) — reuses the same keyword list already
+    applied to the Jobs sheet (agent.resume_match.score_seniority / config/
+    resume_profile.yaml) so both sheets agree on what counts as a mismatch. Checked
+    against the full post text, not just the opening window looks_like_hiring_post
+    uses, since this kind of language can appear anywhere in the post.
+
+    This only catches seniority *words* — a post stating a plain numeric years bar
+    ("Experience: 8-12 Years") with no seniority word in it slips past this check;
+    see has_experience_gap below for that case (a real one found in manual testing:
+    "Product Manager – Enterprise Wi-Fi... Experience: 8–12 Years").
+    """
+    if not content:
+        return False
+    lowered = content.lower()
+    return any(keyword.lower() in lowered for keyword in seniority_mismatch_keywords)
+
+
+def has_experience_gap(
+    content: str | None,
+    total_experience_years: float,
+    max_gap_years: float = 3.0,
+) -> bool:
+    """True if the post states a minimum-years bar Arjun falls short of by more than
+    max_gap_years. Reuses agent.resume_match.extract_min_years_required directly
+    rather than re-implementing the regex. This is a pass/fail cut, not the Jobs
+    sheet's graded score — Hiring Posts already returns few results, so the default
+    only drops clearly out-of-reach roles (a gap of 3+ years, e.g. "8-12 Years" vs.
+    ~2 years of experience) rather than borderline ones (a gap of 1 year) a human
+    might still want to see and judge for themselves.
+    """
+    required = extract_min_years_required(content)
+    if required is None:
+        return False
+    return (required - total_experience_years) > max_gap_years
+
+
 def filter_relevant_posts(
-    posts: Iterable[HiringPost], title_keywords: Iterable[str]
+    posts: Iterable[HiringPost],
+    title_keywords: Iterable[str],
+    seniority_mismatch_keywords: Iterable[str] = (),
+    total_experience_years: float | None = None,
 ) -> list[HiringPost]:
     """Keeps posts that plausibly ARE a hiring announcement from a hiring-relevant
-    person, dropping recruiter-agency blasts for unrelated roles, bot/aggregator
-    accounts, and candidates-seeking-work posts that a loose LinkedIn search-relevance
-    match still lets through. Not perfect precision by design — this is a keyword
-    heuristic, same discipline as the rule-based company classifier (no NLP/LLM
-    extraction) — false positives are expected and fine for a human to skim past.
+    person for a role at Arjun's level, dropping recruiter-agency blasts for
+    unrelated roles, bot/aggregator accounts, candidates-seeking-work posts that a
+    loose LinkedIn search-relevance match still lets through, and senior-level
+    listings he doesn't qualify for yet (by seniority word OR by a stated years bar
+    he falls clearly short of — see has_seniority_mismatch vs. has_experience_gap
+    above for why both checks exist). Not perfect precision by design — this is a
+    keyword/regex heuristic, same discipline as the rule-based company classifier
+    (no NLP/LLM extraction) — false positives are expected and fine for a human to
+    skim past. seniority_mismatch_keywords defaults to empty and
+    total_experience_years defaults to None (both checks off) so existing callers
+    that don't pass them keep their prior behavior.
     """
     title_keywords = list(title_keywords)
+    seniority_mismatch_keywords = list(seniority_mismatch_keywords)
     return [
         post
         for post in posts
         if looks_like_hiring_post(post.content, title_keywords)
         and author_matches_role_signal(post.author_headline)
+        and not has_seniority_mismatch(post.content, seniority_mismatch_keywords)
+        and not (
+            total_experience_years is not None
+            and has_experience_gap(post.content, total_experience_years)
+        )
     ]
 
 

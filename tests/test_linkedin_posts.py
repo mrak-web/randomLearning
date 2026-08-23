@@ -13,6 +13,8 @@ from agent.linkedin_posts import (
     author_matches_role_signal,
     build_post_search_queries,
     filter_relevant_posts,
+    has_experience_gap,
+    has_seniority_mismatch,
     looks_like_hiring_post,
     populate_hiring_posts_sheet,
     search_hiring_posts,
@@ -199,7 +201,31 @@ def test_author_matches_role_signal():
     assert not author_matches_role_signal(None)
 
 
-def test_filter_relevant_posts_requires_both_conditions():
+SENIORITY_MISMATCH_KEYWORDS = ["senior", "principal", "director"]
+
+
+def test_has_seniority_mismatch():
+    assert has_seniority_mismatch(
+        "Product Manager – Enterprise Wi-Fi\nExperience: 8-12 Years\nSenior candidates preferred",
+        SENIORITY_MISMATCH_KEYWORDS,
+    )
+    assert not has_seniority_mismatch("Associate Product Manager, 1-2 years", SENIORITY_MISMATCH_KEYWORDS)
+    assert not has_seniority_mismatch(None, SENIORITY_MISMATCH_KEYWORDS)
+    assert not has_seniority_mismatch("Product Manager role", [])
+
+
+def test_has_experience_gap():
+    # Real example (2026-08-23): no seniority word, only a numeric years bar.
+    content = "Product Manager - Enterprise Wi-Fi\nExperience: 8-12 Years"
+    assert has_experience_gap(content, total_experience_years=2.2)
+    assert not has_experience_gap(content, total_experience_years=9.0)
+    # Small gap (<= default max_gap_years) is left for a human to judge, not dropped.
+    assert not has_experience_gap("Requires 3+ years", total_experience_years=2.2)
+    assert not has_experience_gap(None, total_experience_years=2.2)
+    assert not has_experience_gap("No years mentioned here", total_experience_years=2.2)
+
+
+def test_filter_relevant_posts_requires_all_conditions():
     posts = [
         hiring_post("relevant"),  # hiring intent + title + product headline -> keep
         hiring_post(
@@ -213,11 +239,34 @@ def test_filter_relevant_posts_requires_both_conditions():
             content="I am a Product Manager looking for my next role",
             author_headline="Product Manager @ Acme",
         ),  # no hiring intent -> drop
+        hiring_post(
+            "senior_role",
+            content="We're hiring a Senior Product Manager, 8-12 years experience",
+        ),  # seniority word mismatch -> drop
+        hiring_post(
+            "years_gap",
+            content="Hiring a Product Manager. Experience: 8-12 Years required.",
+        ),  # no seniority word, but years bar far exceeds Arjun's -> drop
+    ]
+
+    filtered = filter_relevant_posts(
+        posts, TITLE_KEYWORDS, SENIORITY_MISMATCH_KEYWORDS, total_experience_years=2.2
+    )
+
+    assert [p.post_id for p in filtered] == ["relevant"]
+
+
+def test_filter_relevant_posts_seniority_and_experience_checks_default_to_off():
+    # A caller that doesn't pass the new params keeps prior behavior -- a senior
+    # role/large years bar still passes if it clears the other two conditions.
+    posts = [
+        hiring_post("senior_role", content="We're hiring a Senior Product Manager"),
+        hiring_post("years_gap", content="Hiring a Product Manager, 8-12 Years required"),
     ]
 
     filtered = filter_relevant_posts(posts, TITLE_KEYWORDS)
 
-    assert [p.post_id for p in filtered] == ["relevant"]
+    assert [p.post_id for p in filtered] == ["senior_role", "years_gap"]
 
 
 # ---------------------------------------------------------------------------
