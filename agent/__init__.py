@@ -1,3 +1,12 @@
+from agent.apollo_import import (
+    ApolloImportError,
+    ApolloImportStats,
+    build_raw_tags,
+    categorize_from_apollo,
+    extract_domain,
+    import_apollo_contacts,
+    map_email_status,
+)
 from agent.classification import (
     ClassificationStats,
     build_classification_text,
@@ -99,6 +108,13 @@ from agent.sourcing import (
 )
 
 __all__ = [
+    "ApolloImportError",
+    "ApolloImportStats",
+    "build_raw_tags",
+    "categorize_from_apollo",
+    "extract_domain",
+    "import_apollo_contacts",
+    "map_email_status",
     "PendingDraft",
     "approve_draft",
     "list_pending_drafts",

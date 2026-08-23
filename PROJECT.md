@@ -130,6 +130,59 @@ for whoever is most likely to actually reply:
 Output: row per contact in `contacts` table with `company_id, name, role, role_category,
 email, verification_confidence, source_api`.
 
+### 4.3.1 Apollo.io Contact Import (parallel path, not Hunter-gated)
+
+Arjun switched to sourcing contacts primarily via Apollo.io himself (exported from
+Apollo's UI, not this pipeline's own lookup) — more control/coverage than Hunter's
+25-lookups/month free tier, and he prefers curating the list by hand. This is a
+**third path into `contacts`**, alongside §4.1 (companies only, no contact yet) and
+§4.3 above (contact via a live Hunter lookup):
+
+- Apollo's People Export gives a company AND an already-resolved contact/email in
+  the *same* CSV row, so `agent/apollo_import.py` does both steps at once:
+  find-or-create the company (deduped by the `Website` column's domain — not the
+  contact's email domain, which can differ when a person's email uses a parent
+  company's domain, e.g. a Zomato-brand employee with a `@zomato.com` address),
+  then insert the contact directly.
+- **Not gated by `niches.active_for_discovery`** — that setting exists to conserve
+  Hunter's free-tier lookup quota; Apollo already resolved the email, so there's no
+  API cost left to gate, and Arjun hand-picked these companies/contacts himself in
+  Apollo regardless of niche. The company still needs `scripts/classify_companies.py`
+  run (or re-run) afterward before `scripts/generate_emails.py` picks up its contacts.
+- Only Apollo's own `"Verified"` email status is trusted enough to auto-queue
+  (`status='verified'`); anything else (e.g. `"Verifying"`) is flagged
+  `needs_manual_check` — same never-guess discipline as §4.3/§7, applied to Apollo's
+  status field instead of a numeric confidence score (Apollo's `Email Confidence`
+  column was blank on every row of Arjun's real export, so status is the only usable
+  signal).
+- `role_category` prefers Apollo's own `Departments` column over the existing
+  title-keyword heuristic (`categorize_role`) — more reliable: a real example,
+  "Product Operations Manager", contains none of `ROLE_KEYWORDS`' literal phrases
+  ("product manager", "product owner", …) and would classify as `other` by title
+  alone, but `Departments` explicitly says "Product, Operations". Falls back to
+  `categorize_role(title)` when `Departments` is blank or doesn't mention HR/Product.
+- `Industry` + `Keywords` columns feed `companies.raw_tags`, so the *existing*
+  rule-based niche classifier (§4.2) runs on Apollo-sourced companies unchanged —
+  no separate classification path. Real result importing Arjun's first Apollo batch
+  (16 contacts / 6 companies, 2026-08-23): JioHotstar/Zomato/District → `consumer`,
+  Pixxel → `ai_devtools`, LinkedIn → `data_saas`, Blinkit → unclassified (Apollo's
+  own `Industry`/`Keywords` data for it was too generic — "technology, information &
+  internet" — to hit any niche keyword, even though a human would obviously call it
+  quick-commerce/consumer). Left `status='skipped'` rather than guessed, per §4.2's
+  existing discipline — Arjun can hand-tag it if he wants those 3 contacts to reach
+  email generation.
+
+CLI: `py scripts/import_apollo_contacts.py path/to/apollo-export.csv`. Required
+columns: `Company Name`, `Email`. Used when present: `First Name`, `Last Name`,
+`Title`, `Website`, `Industry`, `Keywords`, `Departments`, `Email Status`. Extra
+columns (Apollo exports ~70) are ignored. 24 tests in `tests/test_apollo_import.py`
+against a small fixture CSV mirroring Apollo's real headers.
+
+Verified end-to-end against Arjun's real export (2026-08-23): 16 rows → 6 companies,
+16 contacts (11 `verified`, 5 `needs_manual_check`) → classify step → **9 real email
+drafts generated** for the 9 verified contacts at classified companies (2 verified
+Blinkit contacts correctly skipped — unclassified company, no niche template to use).
+
 ### 4.4 Email Generation
 
 - One template per niche (4 templates total), each with a placeholder for the
@@ -240,6 +293,11 @@ send_config    daily_cap, ramp_step, ramp_ceiling    -- single-row config table
    YC/ProductHunt/Startup India pulls are **not built yet** — each is a real
    third-party API/endpoint that needs its response shape verified live before
    writing a parser against it, rather than guessed from memory.
+   **Apollo.io contact import** (2026-08-23, see §4.3.1) is a parallel path that
+   feeds `contacts` directly alongside company sourcing — Arjun switched to Apollo
+   as his primary contact source over Hunter's free-tier limits. Verified end-to-
+   end against his real 16-contact export: 6 companies created, 16 contacts
+   inserted, 9 real drafts generated after classification.
 3. ✅ **Classification** — rule-based niche tagger. Reordered ahead of contact discovery
    (was step 4) since it's free and has to run first for `niches.active_for_discovery`
    to gate anything — see the note in §4.
