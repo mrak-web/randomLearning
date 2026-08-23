@@ -1,0 +1,66 @@
+# Arjun's resume profile for job-match scoring (agent/resume_match.py). Hand-curated
+# from data/resume.pdf by reading it once, not auto-parsed at runtime -- same
+# discipline as story_bank.yaml (§3, PROJECT.md): the resume barely changes, so this
+# is reviewed/edited by hand instead of re-read by an LLM on every job-lookup run,
+# which keeps match scoring at zero per-run API cost. Confirmed with Arjun 2026-08-23.
+#
+# Update this file (not the scoring code) when the resume changes materially -- a
+# new full-time start date, new skills, a shift in target seniority, etc.
+
+candidate:
+  name: "Arjun Khanna"
+  # Continuous full-time employment, no gap: Indus Insights (Jun 2024) -> Rapido
+  # (May 2026, current). Rapido's "Product Intern" title undersells it -- Arjun
+  # confirmed (2026-08-23) it's full-time, substantive PM work and should count
+  # toward total years of experience despite the short tenure so far, not be
+  # discounted to zero. Total experience is computed dynamically from this date on
+  # every run (see ResumeProfile.total_experience_years), so this file doesn't need
+  # editing just because time passes.
+  full_time_start_date: "2024-06-01"
+  # entry_level_pm | apm -- NOT senior/staff/principal/lead/director/vp/head_of_product.
+  target_level: "entry_level_pm"
+  # Economics/Finance + Entrepreneurship PGD (Ashoka University) -- not CS/engineering.
+  education: "non_technical"
+
+core_skills:
+  - SQL
+  - Advanced Excel
+  - Excel VBA
+  - JIRA
+  - Metabase
+  - Power BI
+  - Tableau
+  - PowerPoint
+
+core_strengths:
+  - data-driven decision-making
+  - user research
+  - hypothesis-driven analysis
+  - growth metrics
+  - conversion metrics
+  - stakeholder management
+  - AI-agentic automation
+  - cross-functional collaboration
+
+# Domain fit, strongest to weakest. Reuses the same 4 niches already defined in
+# story_bank.yaml/niche_keywords.yaml so job-domain scoring shares that keyword
+# infrastructure (agent.classification.classify_text) instead of duplicating it.
+domain_fit_order:
+  - consumer      # Rapido -- ride-hailing marketplace, strongest + most recent
+  - data_saas     # Indus Insights -- analytics consulting, 2 years, most tenure
+  - fintech       # FreeCharge -- BNPL/payments internship
+  - ai_devtools   # AI-agentic browser extension, GMAT simulator personal project
+
+# Seniority language in a job's title/description that should score it as a poor
+# fit -- Arjun is early-career, transitioning into PM, not qualified for these yet.
+seniority_mismatch_keywords:
+  - senior
+  - staff product manager
+  - principal
+  - lead product manager
+  - director
+  - vice president
+  - " vp "
+  - head of product
+  - group product manager
+  - chief product officer

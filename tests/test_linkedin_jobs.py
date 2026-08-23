@@ -255,6 +255,8 @@ def test_write_postings_excel_round_trips(tmp_path: Path):
             poster_title="Senior HR Executive",
             poster_profile_url="https://in.linkedin.com/in/jane-doe",
             other_contacts=("jane@acme.com", "hr@acme.io"),
+            match_score=82,
+            match_reasons=("meets stated 2+ yr requirement (2.2 yrs)", "domain: consumer"),
         ),
         LinkedInJobPosting(
             job_id="job2",
@@ -281,6 +283,8 @@ def test_write_postings_excel_round_trips(tmp_path: Path):
     assert header == [
         "Company",
         "Job Title",
+        "Match Score",
+        "Match Notes",
         "Job Link",
         "Contact Name",
         "Contact Title",
@@ -294,16 +298,19 @@ def test_write_postings_excel_round_trips(tmp_path: Path):
     first_row = [cell.value for cell in sheet[2]]
     assert first_row[0] == "Acme"
     assert first_row[1] == "Product Manager"
-    assert first_row[2] == "https://in.linkedin.com/jobs/view/job1"
-    assert first_row[3] == "Jane Doe"
-    assert first_row[6] == "jane@acme.com; hr@acme.io"
+    assert first_row[2] == 82
+    assert first_row[3] == "meets stated 2+ yr requirement (2.2 yrs); domain: consumer"
+    assert first_row[4] == "https://in.linkedin.com/jobs/view/job1"
+    assert first_row[5] == "Jane Doe"
+    assert first_row[8] == "jane@acme.com; hr@acme.io"
 
     second_row = [cell.value for cell in sheet[3]]
-    assert second_row[3] is None
-    assert second_row[6] is None
+    assert second_row[2] is None
+    assert second_row[5] is None
+    assert second_row[8] is None
 
-    assert sheet.cell(row=2, column=3).hyperlink.target == "https://in.linkedin.com/jobs/view/job1"
-    assert sheet.cell(row=2, column=6).hyperlink.target == "https://in.linkedin.com/in/jane-doe"
+    assert sheet.cell(row=2, column=5).hyperlink.target == "https://in.linkedin.com/jobs/view/job1"
+    assert sheet.cell(row=2, column=8).hyperlink.target == "https://in.linkedin.com/in/jane-doe"
 
 
 def test_write_postings_excel_empty_list_still_writes_header(tmp_path: Path):

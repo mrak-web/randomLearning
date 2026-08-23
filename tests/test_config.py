@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 import pytest
 
 from agent.config import (
     ConfigError,
+    load_resume_profile,
     load_settings,
     load_story_bank,
     missing_templates,
@@ -116,6 +118,35 @@ def test_load_story_bank_empty_bullets_raises(tmp_path: Path):
 
     with pytest.raises(ConfigError, match="bullets is empty"):
         load_story_bank(broken)
+
+
+def test_load_resume_profile_against_real_config():
+    profile = load_resume_profile()
+
+    assert profile.name == "Arjun Khanna"
+    assert profile.full_time_start_date == date(2024, 6, 1)
+    assert profile.target_level == "entry_level_pm"
+    assert profile.domain_fit_order == ["consumer", "data_saas", "fintech", "ai_devtools"]
+    assert "SQL" in profile.core_skills
+    assert "senior" in profile.seniority_mismatch_keywords
+    # Grows over time, never negative, and roughly matches the known start date.
+    assert profile.total_experience_years() > 2.0
+
+
+def test_load_resume_profile_missing_file_raises():
+    with pytest.raises(ConfigError, match="not found"):
+        load_resume_profile(REPO_ROOT / "config" / "does_not_exist.yaml")
+
+
+def test_load_resume_profile_missing_required_key_raises(tmp_path: Path):
+    broken = tmp_path / "resume_profile.yaml"
+    broken.write_text(
+        "candidate:\n  name: 'Test'\n  full_time_start_date: '2024-01-01'\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError, match="target_level"):
+        load_resume_profile(broken)
 
 
 def test_missing_templates_reflects_current_repo_state():

@@ -46,6 +46,8 @@ HIRING_INTENT_KEYWORDS = (
     "looking for a",
     "looking to hire",
     "open position",
+    "open role",
+    "roles open",
     "job opening",
     "job opportunity",
     "referral",
@@ -238,9 +240,44 @@ class ApifyLinkedInPostSearch(LinkedInPostSearchClient):
         return [_to_post(item) for item in items]
 
 
-def build_post_search_queries(title_keywords: Iterable[str], location: str) -> list[str]:
-    """One quoted-phrase query per job title, biased toward hiring intent + location."""
-    return [f'"{title}" hiring {location}' for title in title_keywords]
+# LinkedIn's post search has no true geo filter (unlike the Jobs actor), so these
+# widen query coverage beyond the literal word "India". Real posts Arjun shared from
+# his own feed (2026-08-23) named a specific city ("Bangalore") or no location at
+# all rather than the country name -- a country-only query was silently cutting
+# recall, since these are quoted-phrase text queries, not filters.
+DEFAULT_QUERY_LOCATIONS: tuple[str, ...] = (
+    "India",
+    "Bengaluru",
+    "Bangalore",
+    "Mumbai",
+    "Delhi",
+    "Gurgaon",
+    "Hyderabad",
+    "Pune",
+    "Noida",
+)
+
+
+def build_post_search_queries(
+    title_keywords: Iterable[str], locations: Iterable[str] | None = None
+) -> list[str]:
+    """One quoted-phrase query per title, times a location-free variant plus each
+    of `locations` (DEFAULT_QUERY_LOCATIONS if not given).
+
+    Ordered location-slot-major (every title at one location before moving to the
+    next) so that if the raw-fetch budget runs out partway through, it has already
+    sampled all titles broadly rather than exhausting the budget drilling into one
+    title's city variants before ever trying the others.
+    """
+    title_keywords = list(title_keywords)
+    location_slots: list[str | None] = [None, *(locations if locations is not None else DEFAULT_QUERY_LOCATIONS)]
+
+    queries = []
+    for location in location_slots:
+        for title in title_keywords:
+            query = f'"{title}" hiring' if location is None else f'"{title}" hiring {location}'
+            queries.append(query)
+    return queries
 
 
 def search_hiring_posts(

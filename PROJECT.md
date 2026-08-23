@@ -387,9 +387,23 @@ sheet, because the data shape is genuinely different and much noisier:
     human-in-the-loop philosophy.
 - Scope locked in with the Jobs search: `posted_limit = month` ("past week" returned
   zero results in manual testing — LinkedIn's post search has no reliable recency
-  density at that window), combined RAW-fetch cap of 50 posts across all queries
-  (this cap drives Apify spend; the relevance filter above runs after fetching, so
-  the final sheet has fewer rows than 50).
+  density at that window), combined RAW-fetch cap of 100 posts across all queries
+  (raised from 50 — see below; this cap drives Apify spend, the relevance filter
+  above runs after fetching so the final sheet has fewer rows than 100).
+- **Query broadening (2026-08-23)**, driven by 3 real posts Arjun shared from his
+  own feed: the original queries appended `"India"` as a literal search term, but
+  two of his three examples named a specific city ("Bangalore") or no location
+  keyword at all — LinkedIn's post search has no true geo filter (unlike the Jobs
+  Actor), so `"India"` was a text-match requirement silently cutting recall, not a
+  location filter. `build_post_search_queries` now generates a location-free
+  variant per title plus variants across `DEFAULT_QUERY_LOCATIONS` (India +
+  8 major tech-hub cities), ordered location-slot-major so a limited budget samples
+  every title broadly before drilling into one title's city variants. One of his
+  three examples (Kirana Club, "roles open across Product, Growth, Engineering and
+  Business") stays an accepted miss — it never says "Product Manager" literally,
+  and loosening the title match to bare "Product" would catch far more unrelated
+  posts than it would rescue; fixing that reliably needs semantic understanding
+  this rule-based filter deliberately doesn't reach for.
 - Output columns (second sheet, "Hiring Posts"): Contact Name, Contact Headline,
   Contact LinkedIn Profile, Company (if detected — only populated when LinkedIn
   tagged a company mention in the post), Post Excerpt (truncated to 600 chars), Post
@@ -409,8 +423,72 @@ sheet, because the data shape is genuinely different and much noisier:
 successful run (it's creating a run resource, not just returning data) — both
 Actor clients originally only accepted 200 and raised on every real call. Fixed to
 accept any 2xx. Both the Jobs search and the Hiring Posts search (with the filter
-above) have now been run for real against the live API and produce a two-sheet
-workbook with genuinely relevant rows in both sheets.
+above) have now been run for real against the live API twice and produce a
+two-sheet workbook with genuinely relevant rows in both sheets. On the second run
+(broader queries, 100-post cap), Hiring Posts happened to surface recruiter-agency
+posts rather than founder/individual-hiring-manager posts — still genuine hiring
+announcements, not noise, but a reminder that which 5ish posts clear the filter
+varies run to run. That run also surfaced a real gap: **Hiring Posts has no
+seniority filter** (an "8-12 Years" listing passed straight through) — the Jobs
+sheet's `seniority_mismatch_keywords` check (§8.1.2) isn't applied there yet;
+flagged to Arjun as a possible fast-follow, not yet built.
+
+### 8.1.2 Resume Match Scoring (Jobs sheet only)
+
+After the first real run, Arjun flagged that keyword-search alone wasn't enough —
+many scraped listings ask for Senior/Principal/5+ years, which he doesn't have, and
+he had no way to tell that from the spreadsheet without reading every row. Added a
+0-100 "Match Score" + "Match Notes" column pair to the **LinkedIn Jobs** sheet
+(the Hiring Posts sheet doesn't get one — no clean job-title/requirements field to
+score against, and Arjun didn't ask for one there).
+
+**Deliberately not an LLM call.** The first design called Claude per job to judge
+fit; Arjun pushed back (2026-08-23) — his resume barely changes, so paying an API
+cost to re-read it on every run made no sense, and he specifically didn't want to
+keep spending more money on this tool. Landed on the same discipline already used
+for `story_bank.yaml` (§3): read the resume **once**, by hand, into a small config
+file, then score every job against that fixed profile with plain rule-based logic.
+Zero per-run API cost, no `ANTHROPIC_API_KEY` needed at all.
+
+- `config/resume_profile.yaml`: hand-curated from `data/resume.pdf`, confirmed with
+  Arjun 2026-08-23. Key facts: continuous full-time employment since 2024-06-01
+  (Indus Insights → Rapido, no gap — Rapido's "Product Intern" title undersells it;
+  Arjun confirmed it's full-time, substantive work and should count toward total
+  years of experience despite the short tenure so far), target level
+  `entry_level_pm`/APM (not Senior/Staff/Principal/Lead/Director/VP/Head of
+  Product), core skills (SQL, Excel/VBA, JIRA, Metabase, Power BI, Tableau), and a
+  domain-fit ranking — consumer (Rapido) > data_saas (Indus Insights) > fintech
+  (FreeCharge) > ai_devtools (personal projects) — that reuses the same 4 niches
+  already defined in `story_bank.yaml`/`niche_keywords.yaml`, not a separate list.
+  `total_experience_years()` is computed dynamically from the start date on every
+  run, so the file doesn't need editing just because time passes.
+- `agent/resume_match.py`: four independent scoring dimensions, weighted and summed
+  to 0-100 —
+  - **Seniority (35%)**: any of the profile's mismatch keywords ("senior",
+    "principal", "director", …) anywhere in the title/description drops this to 10.
+  - **Experience (30%)**: regex-extracts the smallest "X+ years" figure in the
+    description and compares it to `total_experience_years()` — full score if met,
+    a shrinking score as the gap grows, neutral (70) if the JD states no figure at
+    all (so an unstated requirement is never guessed at and penalized).
+  - **Skills (20%)**: keyword overlap between the profile's core skills/strengths
+    and the job description.
+  - **Domain (15%)**: reuses `agent.classification.classify_text` (the same rule-
+    based niche classifier module 3 uses for companies) to tag the job's niche, then
+    scores by where that niche sits in the profile's `domain_fit_order`.
+  - Not perfect precision by design — a keyword/regex heuristic, not semantic
+    understanding, same tradeoff already accepted for the niche classifier and the
+    Hiring Posts relevance filter.
+- `LinkedInJobPosting` gained `description_text` (the raw JD, previously only used
+  transiently for email-regex extraction) and `match_score`/`match_reasons` fields,
+  filled in by `attach_match_scores` (rebuilds each frozen record via
+  `dataclasses.replace`). `scripts/find_linkedin_jobs.py` sorts the Jobs sheet by
+  score descending after scoring, so the best-fit roles surface at the top without
+  Arjun needing to sort the spreadsheet himself.
+- 26 tests in `tests/test_resume_match.py` cover each scoring dimension plus two
+  end-to-end scenarios (a good-fit APM/marketplace role scores 70+; a "Senior PM,
+  8+ years, fintech" role scores ≤40) — not yet re-verified against a fresh live
+  Apify run as of this writing (Arjun rotated his Apify token right after the first
+  live test, so a new one is needed to confirm real-world scores look right).
 
 ## 9. Explicitly out of scope (for now)
 

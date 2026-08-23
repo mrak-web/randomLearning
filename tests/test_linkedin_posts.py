@@ -108,9 +108,25 @@ def hiring_post(
 # ---------------------------------------------------------------------------
 
 
-def test_build_post_search_queries():
-    queries = build_post_search_queries(["Product Manager", "APM"], "India")
-    assert queries == ['"Product Manager" hiring India', '"APM" hiring India']
+def test_build_post_search_queries_default_locations_includes_location_free_variant():
+    queries = build_post_search_queries(["Product Manager", "APM"], locations=["India", "Bengaluru"])
+
+    # Location-free variant for every title comes first (location-slot-major order).
+    assert queries[:2] == ['"Product Manager" hiring', '"APM" hiring']
+    assert '"Product Manager" hiring India' in queries
+    assert '"APM" hiring India' in queries
+    assert '"Product Manager" hiring Bengaluru' in queries
+    assert '"APM" hiring Bengaluru' in queries
+    assert len(queries) == 2 * 3  # 2 titles x (1 location-free + 2 locations)
+
+
+def test_build_post_search_queries_uses_default_locations_when_omitted():
+    queries = build_post_search_queries(["Product Manager"])
+
+    assert '"Product Manager" hiring' in queries
+    assert '"Product Manager" hiring India' in queries
+    assert '"Product Manager" hiring Bengaluru' in queries
+    assert '"Product Manager" hiring Bangalore' in queries
 
 
 # ---------------------------------------------------------------------------
@@ -129,6 +145,37 @@ def test_looks_like_hiring_post_requires_both_intent_and_title():
         "I am a Product Manager with 5 years experience", TITLE_KEYWORDS
     )
     assert not looks_like_hiring_post(None, TITLE_KEYWORDS)
+
+
+def test_looks_like_hiring_post_matches_real_examples_shared_by_arjun():
+    # post1 (2026-08-23): first-person hiring post naming cities, not "India".
+    post1 = (
+        "I am hiring a Product Manager for roles in London and Bangalore.\n\n"
+        "We're looking for someone with experience building digital, user-facing "
+        "products who understands customer needs and can turn ideas into simple, "
+        "useful experiences."
+    )
+    assert looks_like_hiring_post(post1, TITLE_KEYWORDS)
+
+    # post3 (2026-08-23): explicit "Associate Product Manager" hiring post.
+    post3 = (
+        "I am hiring an Associate Product Manager at Saber.\n\n"
+        "Saber is a YC-backed payments company moving millions of dollars in "
+        "cross-border remittance every day."
+    )
+    assert looks_like_hiring_post(post3, TITLE_KEYWORDS)
+
+    # post2 (2026-08-23, Kirana Club): accepted miss -- never says "Product
+    # Manager" literally, only lists "Product" as one category among several
+    # ("Product, Growth, Engineering and Business"). Loosening the title match to
+    # bare "Product" would catch far too many unrelated posts, so this stays a
+    # known gap for the keyword heuristic rather than reached-for with NLP.
+    post2 = (
+        "Kirana Club is entering its next phase of growth — and we're looking "
+        "for builders.\nWe have multiple roles open across Product, Growth, "
+        "Engineering and Business."
+    )
+    assert not looks_like_hiring_post(post2, TITLE_KEYWORDS)
 
 
 def test_looks_like_hiring_post_ignores_incidental_mention_deep_in_body():

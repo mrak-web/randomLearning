@@ -92,12 +92,15 @@ linkedin_posts:
   # Second, noisier data source alongside linkedin_jobs above: LinkedIn posts where
   # someone personally announces a hiring need (a PM or HR person posting "we're
   # hiring a PM..."), which the Jobs-tab search above never sees. Reuses
-  # linkedin_jobs.keywords/location for query text and relevance filtering — no
-  # separate keyword list to keep in sync. See PROJECT.md §8.1 for why this needs a
-  # client-side relevance filter (hiring-intent phrase + author headline role-signal)
-  # on top of the Actor's own loose search-relevance matching.
+  # linkedin_jobs.keywords for query text and relevance filtering — no separate
+  # keyword list to keep in sync. Query locations are a separate, broader hardcoded
+  # list in agent/linkedin_posts.py (DEFAULT_QUERY_LOCATIONS) since this search has
+  # no true geo filter — see PROJECT.md §8.1 for why (real posts named cities, not
+  # "India") and for the client-side relevance filter (hiring-intent phrase +
+  # author headline role-signal) layered on top of the Actor's loose text matching.
   posted_limit: month   # any | 1h | 24h | week | month | 3months | 6months | year
   # Combined RAW-fetch cap across all queries (this is what drives Apify spend —
   # the relevance filter runs after fetching, so the final sheet will have fewer
-  # rows than this).
-  limit: 50
+  # rows than this). Raised from 50 -> 100 (2026-08-23) alongside the broader query
+  # set above, to give the wider net more room to actually surface matches.
+  limit: 100

@@ -34,6 +34,8 @@ EMAIL_PATTERN = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 EXCEL_HEADERS = [
     "Company",
     "Job Title",
+    "Match Score",
+    "Match Notes",
     "Job Link",
     "Contact Name",
     "Contact Title",
@@ -62,6 +64,12 @@ class LinkedInJobPosting:
     poster_title: str | None
     poster_profile_url: str | None
     other_contacts: tuple[str, ...] = ()
+    description_text: str | None = None
+    # Filled in by agent.resume_match.attach_match_scores after search — kept on the
+    # same record (rather than a parallel lookup) so the row that flows into the
+    # Excel writer is already fully enriched, same pattern as other_contacts above.
+    match_score: int | None = None
+    match_reasons: tuple[str, ...] = ()
 
 
 def extract_emails(text: str | None) -> tuple[str, ...]:
@@ -88,6 +96,7 @@ def _to_posting(item: dict) -> LinkedInJobPosting:
         poster_title=item.get("jobPosterTitle"),
         poster_profile_url=item.get("jobPosterProfileUrl"),
         other_contacts=extract_emails(item.get("descriptionText")),
+        description_text=item.get("descriptionText"),
     )
 
 
@@ -224,6 +233,8 @@ def populate_jobs_sheet(sheet, postings: list[LinkedInJobPosting]) -> None:
         row = [
             posting.company_name,
             posting.title,
+            posting.match_score,
+            "; ".join(posting.match_reasons) or None,
             posting.link,
             posting.poster_name,
             posting.poster_title,
@@ -236,9 +247,9 @@ def populate_jobs_sheet(sheet, postings: list[LinkedInJobPosting]) -> None:
         sheet.append(row)
         written_row = sheet.max_row
         if posting.link:
-            sheet.cell(row=written_row, column=3).hyperlink = posting.link
+            sheet.cell(row=written_row, column=5).hyperlink = posting.link
         if posting.poster_profile_url:
-            sheet.cell(row=written_row, column=6).hyperlink = posting.poster_profile_url
+            sheet.cell(row=written_row, column=8).hyperlink = posting.poster_profile_url
 
     autosize_columns(sheet)
 

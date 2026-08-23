@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SETTINGS_PATH = PROJECT_ROOT / "config" / "settings.yaml"
 DEFAULT_STORY_BANK_PATH = PROJECT_ROOT / "config" / "story_bank.yaml"
 DEFAULT_NICHE_KEYWORDS_PATH = PROJECT_ROOT / "config" / "niche_keywords.yaml"
+DEFAULT_RESUME_PROFILE_PATH = PROJECT_ROOT / "config" / "resume_profile.yaml"
 
 
 class ConfigError(Exception):
@@ -243,3 +245,53 @@ def load_niche_keywords(path: Path | None = None) -> dict[str, list[str]]:
             raise ConfigError(f"{path}[{niche}] has no keywords")
         keywords[niche] = list(entry)
     return keywords
+
+
+@dataclass(frozen=True)
+class ResumeProfile:
+    """Hand-curated resume profile for job-match scoring (agent/resume_match.py).
+
+    Loaded from config/resume_profile.yaml, not re-derived from the resume PDF at
+    runtime — see that file's header comment for why (zero per-run LLM cost).
+    """
+
+    name: str
+    full_time_start_date: date
+    target_level: str
+    education: str
+    core_skills: list[str]
+    core_strengths: list[str]
+    domain_fit_order: list[str]
+    seniority_mismatch_keywords: list[str]
+
+    def total_experience_years(self, as_of: date | None = None) -> float:
+        """Computed dynamically from full_time_start_date so this doesn't go stale."""
+        as_of = as_of or date.today()
+        return (as_of - self.full_time_start_date).days / 365.25
+
+
+def load_resume_profile(path: Path | None = None) -> ResumeProfile:
+    path = path or DEFAULT_RESUME_PROFILE_PATH
+    if not path.exists():
+        raise ConfigError(f"resume profile file not found: {path}")
+
+    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if not isinstance(raw, dict):
+        raise ConfigError(f"{path} did not parse to a mapping")
+
+    candidate = _require(raw, "candidate", str(path))
+
+    return ResumeProfile(
+        name=_require(candidate, "name", f"{path} candidate"),
+        full_time_start_date=date.fromisoformat(
+            _require(candidate, "full_time_start_date", f"{path} candidate")
+        ),
+        target_level=_require(candidate, "target_level", f"{path} candidate"),
+        education=_require(candidate, "education", f"{path} candidate"),
+        core_skills=list(_require(raw, "core_skills", str(path))),
+        core_strengths=list(_require(raw, "core_strengths", str(path))),
+        domain_fit_order=list(_require(raw, "domain_fit_order", str(path))),
+        seniority_mismatch_keywords=list(
+            _require(raw, "seniority_mismatch_keywords", str(path))
+        ),
+    )
