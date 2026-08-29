@@ -28,9 +28,19 @@ class EmailSender(ABC):
 
     @abstractmethod
     def send(
-        self, to_email: str, subject: str, body: str, resume_path: Path | None
+        self,
+        to_email: str,
+        subject: str,
+        body: str,
+        resume_path: Path | None,
+        thread_id: str | None = None,
     ) -> str:
-        """Sends one email and returns a thread id for reply-tracking (§4.7)."""
+        """Sends one email and returns a thread id for reply-tracking (§4.7).
+
+        thread_id, when given, threads the send onto an existing Gmail conversation --
+        used for follow-ups (agent/followups.py) so they land in the same thread as the
+        contact's initial email instead of starting a new one.
+        """
 
 
 def _default_sleep(min_seconds: float, max_seconds: float) -> None:
@@ -147,7 +157,8 @@ def send_approved_emails(
 
     rows = conn.execute(
         """
-        SELECT eq.id, eq.subject, eq.body, eq.attached_resume, ct.email AS to_email
+        SELECT eq.id, eq.subject, eq.body, eq.attached_resume, eq.gmail_thread_id,
+               ct.email AS to_email
         FROM email_queue eq
         JOIN contacts ct ON ct.id = eq.contact_id
         WHERE eq.status = 'approved'
@@ -162,7 +173,13 @@ def send_approved_emails(
     for i, row in enumerate(rows):
         resume_path = resume_pdf_path if row["attached_resume"] else None
         try:
-            thread_id = sender.send(row["to_email"], row["subject"], row["body"], resume_path)
+            thread_id = sender.send(
+                row["to_email"],
+                row["subject"],
+                row["body"],
+                resume_path,
+                thread_id=row["gmail_thread_id"],
+            )
         except SendingError:
             failed += 1
             continue

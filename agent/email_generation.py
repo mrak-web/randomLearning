@@ -104,6 +104,27 @@ def render_email(
     return subject, body
 
 
+def render_followup_email(
+    template_text: str,
+    *,
+    company_name: str,
+    contact_name: str | None,
+    sender_display_name: str,
+) -> tuple[str, str]:
+    """Renders a follow-up template (config/templates/followup{1,2}.txt) -- no story
+    bullets, since a follow-up is a short bump, not a repeat of the original pitch.
+    """
+    subject_template, body_template = parse_template(template_text)
+    context = {
+        "company_name": company_name,
+        "contact_first_name": get_first_name(contact_name),
+        "sender_name": sender_display_name,
+    }
+    subject = _substitute(subject_template, context)
+    body = _substitute(body_template, context)
+    return subject, body
+
+
 @dataclass(frozen=True)
 class GenerationStats:
     generated: int = 0

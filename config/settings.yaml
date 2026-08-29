@@ -62,7 +62,7 @@ send:
 
 followup:
   business_days_wait: 5
-  max_followups: 1
+  max_followups: 2
 
 paths:
   db_path: "./agent.db"

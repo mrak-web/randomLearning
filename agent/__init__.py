@@ -51,8 +51,17 @@ from agent.email_generation import (
     get_first_name,
     parse_template,
     render_email,
+    render_followup_email,
 )
-from agent.gmail_client import SCOPES, GmailApiSender, build_mime_message, encode_message
+from agent.followups import FollowupStats, business_days_since, generate_due_followups
+from agent.gmail_client import (
+    SCOPES,
+    GmailApiSender,
+    GmailReplyChecker,
+    ReplyChecker,
+    build_mime_message,
+    encode_message,
+)
 from agent.linkedin_export import write_linkedin_excel
 from agent.linkedin_jobs import (
     ApifyLinkedInJobSearch,
@@ -107,6 +116,16 @@ from agent.sourcing import (
     SourcingError,
     import_companies,
 )
+from agent.tracking import TrackingStats, check_bounces, check_replies
+from agent.tracking_dashboard import (
+    ALLOWED_OUTCOME_STATUSES,
+    TrackingError,
+    TrackingRow,
+    TrackingSummary,
+    dashboard_rows,
+    set_company_outcome,
+    summarize,
+)
 
 __all__ = [
     "ApolloImportError",
@@ -127,6 +146,8 @@ __all__ = [
     "send_approved_emails",
     "SCOPES",
     "GmailApiSender",
+    "GmailReplyChecker",
+    "ReplyChecker",
     "build_mime_message",
     "encode_message",
     "EmailGenerationError",
@@ -137,6 +158,20 @@ __all__ = [
     "get_first_name",
     "parse_template",
     "render_email",
+    "render_followup_email",
+    "FollowupStats",
+    "business_days_since",
+    "generate_due_followups",
+    "TrackingStats",
+    "check_bounces",
+    "check_replies",
+    "ALLOWED_OUTCOME_STATUSES",
+    "TrackingError",
+    "TrackingRow",
+    "TrackingSummary",
+    "dashboard_rows",
+    "set_company_outcome",
+    "summarize",
     "ContactDiscoveryError",
     "DiscoveryStats",
     "EmailFinder",

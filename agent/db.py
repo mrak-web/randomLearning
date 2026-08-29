@@ -14,6 +14,20 @@ SCHEMA_PATH = Path(__file__).resolve().parent.parent / "db" / "schema.sql"
 _TABLES = ("companies", "contacts", "email_queue", "send_log", "send_config")
 
 
+# Columns added after the original schema shipped. init_db adds these to an existing
+# agent.db in place (additive-only, no data loss) since CREATE TABLE IF NOT EXISTS
+# alone won't touch a table that already exists without these columns.
+_ADDED_COLUMNS = {
+    "companies": [
+        ("outcome_status", "TEXT"),
+        ("outcome_notes", "TEXT"),
+    ],
+    "email_queue": [
+        ("followup_number", "INTEGER NOT NULL DEFAULT 0"),
+    ],
+}
+
+
 def init_db(db_path: Path, settings: Settings | None = None) -> None:
     """Create the schema if it doesn't exist yet, and seed send_config from settings."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -21,9 +35,18 @@ def init_db(db_path: Path, settings: Settings | None = None) -> None:
     with sqlite3.connect(db_path) as conn:
         conn.execute("PRAGMA foreign_keys = ON")
         conn.executescript(schema_sql)
+        _migrate_existing_columns(conn)
         if settings is not None:
             _seed_send_config(conn, settings)
         conn.commit()
+
+
+def _migrate_existing_columns(conn: sqlite3.Connection) -> None:
+    for table, columns in _ADDED_COLUMNS.items():
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for name, ddl_type in columns:
+            if name not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl_type}")
 
 
 def _seed_send_config(conn: sqlite3.Connection, settings: Settings) -> None:

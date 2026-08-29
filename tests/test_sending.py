@@ -31,8 +31,8 @@ class FakeEmailSender(EmailSender):
         self.default_thread_id = default_thread_id
         self.calls: list[tuple] = []
 
-    def send(self, to_email, subject, body, resume_path):
-        self.calls.append((to_email, subject, body, resume_path))
+    def send(self, to_email, subject, body, resume_path, thread_id=None):
+        self.calls.append((to_email, subject, body, resume_path, thread_id))
         result = self.responses.get(to_email, self.default_thread_id)
         if isinstance(result, Exception):
             raise result
@@ -48,7 +48,9 @@ def _fake_sleep_recorder():
     return sleep_fn, calls
 
 
-def _insert_approved_email(conn, *, company_name, contact_email, attached_resume=1, created_at=None) -> int:
+def _insert_approved_email(
+    conn, *, company_name, contact_email, attached_resume=1, created_at=None, gmail_thread_id=None
+) -> int:
     company_id = conn.execute(
         "INSERT INTO companies (name, source, niche, status) VALUES (?, 'manual_csv', 'consumer', 'classified')",
         (company_name,),
@@ -61,15 +63,19 @@ def _insert_approved_email(conn, *, company_name, contact_email, attached_resume
     if created_at is not None:
         eq_id = conn.execute(
             "INSERT INTO email_queue (contact_id, company_id, niche, subject, body, kind, "
-            "attached_resume, status, created_at) VALUES (?, ?, 'consumer', ?, ?, 'initial', ?, "
-            "'approved', ?)",
-            (contact_id, company_id, f"Subject for {company_name}", "Body text", attached_resume, created_at),
+            "attached_resume, status, created_at, gmail_thread_id) VALUES (?, ?, 'consumer', ?, ?, "
+            "'initial', ?, 'approved', ?, ?)",
+            (
+                contact_id, company_id, f"Subject for {company_name}", "Body text", attached_resume,
+                created_at, gmail_thread_id,
+            ),
         ).lastrowid
     else:
         eq_id = conn.execute(
             "INSERT INTO email_queue (contact_id, company_id, niche, subject, body, kind, "
-            "attached_resume, status) VALUES (?, ?, 'consumer', ?, ?, 'initial', ?, 'approved')",
-            (contact_id, company_id, f"Subject for {company_name}", "Body text", attached_resume),
+            "attached_resume, status, gmail_thread_id) VALUES (?, ?, 'consumer', ?, ?, 'initial', ?, "
+            "'approved', ?)",
+            (contact_id, company_id, f"Subject for {company_name}", "Body text", attached_resume, gmail_thread_id),
         ).lastrowid
     conn.commit()
     return eq_id
@@ -181,7 +187,7 @@ def test_send_approved_emails_sends_and_marks_sent(settings):
     assert row["sent_at"] is not None
     assert log_row["sent_count"] == 1
     assert log_row["bounce_count"] == 0
-    assert sender.calls == [("priya@meesho.example", "Subject for Meesho", "Body text", FAKE_RESUME)]
+    assert sender.calls == [("priya@meesho.example", "Subject for Meesho", "Body text", FAKE_RESUME, None)]
 
 
 def test_send_approved_emails_passes_none_when_resume_not_attached(settings):
@@ -398,6 +404,28 @@ def test_send_approved_emails_no_sleep_when_max_delay_zero(settings):
         )
 
     assert sleep_calls == []
+
+
+def test_send_approved_emails_passes_existing_thread_id_for_followups(settings):
+    init_db(settings.db_path, settings)
+    with connect(settings.db_path) as conn:
+        _insert_approved_email(
+            conn,
+            company_name="Meesho",
+            contact_email="priya@meesho.example",
+            gmail_thread_id="thread-original",
+        )
+        sender = FakeEmailSender()
+
+        send_approved_emails(
+            conn,
+            sender,
+            resume_pdf_path=FAKE_RESUME,
+            bounce_rate_circuit_breaker=settings.send.bounce_rate_circuit_breaker,
+            today=date(2026, 1, 1),
+        )
+
+    assert sender.calls[0][4] == "thread-original"
 
 
 def test_send_approved_emails_no_approved_rows_is_clean(settings):

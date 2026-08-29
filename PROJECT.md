@@ -21,7 +21,8 @@ in the review UI.
 | Review interface | Simple local web UI (Streamlit) |
 | Resume | Single resume, attached to every email |
 | Daily volume | Start ~10–15/day, ramp up gradually (see §6) |
-| Follow-up cadence | 1 follow-up per contact, sent 5 business days after the initial email, then stop |
+| Follow-up cadence | **2 follow-ups** per contact (raised from 1, 2026-08-29), each sent 5 business days after the previous email, then stop |
+| Follow-up approval | **Scoped exception to the human-in-the-loop rule above (2026-08-29):** once due, follow-ups are drafted *and sent* automatically -- no Approve click. Arjun's explicit choice, made after being told it deviates from "nothing sends without approval." Initial emails are untouched by this -- they still require approval as always. |
 | Niche priority on ties | Consumer/marketplace preferred (Arjun's stated preference) |
 | Active discovery scope | Contact discovery (Hunter.io lookups) restricted to `consumer`-niche companies for now (`niches.active_for_discovery` in settings.yaml). Fintech/data-SaaS/AI-devtools companies are still sourced and classified so no data is lost, just not looked up yet — expand the list when ready. |
 
@@ -235,6 +236,25 @@ after testing the Streamlit review queue for the first time:
   draft from 2026-08-10, clearly old dev/test data) was left untouched rather
   than touched without being asked.
 
+**Content revision (2026-08-29), prompted by reverse-engineering a friend's
+cold-email tracker** (`data/Email Mastersheet.xlsx`) to design module 8 below:
+
+- **`{{company_name}}` is back in the subject line**, reversing the
+  2026-08-24 fixed-branding-subject decision above. Sending one identical
+  subject to dozens of recipients from a single personal Gmail account is a
+  real spam-pattern/deliverability risk on top of losing personalization —
+  worth catching before any real sends have gone out (none had, at either
+  revision).
+- **A low-friction opt-out line was added to the body** (`"No worries if
+  this isn't the right fit or timing — feel free to let me know either
+  way."`). §7 already claimed every send had one; it didn't in the actual
+  template text until now.
+- **Two new follow-up templates**, `config/templates/followup1.txt` /
+  `followup2.txt` — short bumps, not niche-specific (every initial email
+  already uses the same Rapido content regardless of niche, so a follow-up
+  needs no niche variant either), rendered by the new
+  `render_followup_email()` in `agent/email_generation.py`.
+
 **Setup note**: the resume you shared is a `.docx`
 (`Arjun_Khanna_CV_V4.docx`). It needs a one-time export to PDF (Word/Google Docs →
 "Save as PDF") before build starts, since re-generating a PDF from the docx on every
@@ -242,13 +262,16 @@ send is unnecessary work for a file that doesn't change per-email.
 
 ### 4.5 Review Queue (Streamlit)
 
-Local web app, run with `streamlit run review_app.py`:
-- Table/list view of pending drafts: company, contact, niche, subject, body preview,
-  resume attachment confirmation.
-- Per-row: **Approve**, **Edit** (inline body edit before approving), **Reject**.
-- Approving sets status `approved` (eligible for the next send batch); nothing sends
-  from here directly — sending is a separate scheduled step, so there's always a buffer
-  between "approved" and "actually left the outbox."
+Local web app, run with `streamlit run review_app.py`, now two tabs:
+- **Review Queue tab**: table/list view of pending *initial-email* drafts: company,
+  contact, niche, subject, body preview, resume attachment confirmation. Per-row:
+  **Approve**, **Edit** (inline body edit before approving), **Reject**. Approving sets
+  status `approved` (eligible for the next send batch); nothing sends from here
+  directly — sending is a separate scheduled step, so there's always a buffer between
+  "approved" and "actually left the outbox." Follow-ups never appear here — see §4.7,
+  they auto-approve.
+- **Tracking Dashboard tab** (added 2026-08-29, §4.7): summary metrics, a per-contact
+  automated-stage table, and the manual per-company outcome editor.
 
 ### 4.6 Scheduled Sending (daily caps + deliverability safeguards)
 
@@ -267,13 +290,64 @@ Local web app, run with `streamlit run review_app.py`:
 
 ### 4.7 Tracking & Follow-ups
 
-- A daily check polls the Gmail thread for each `sent` email; if a reply exists in the
-  thread, status → `replied` and it's pulled out of the follow-up pipeline.
-- If no reply after 5 business days, exactly **one** follow-up is generated (short,
-  references the original thread) and dropped into the review queue like any other
-  draft — it still needs approval before sending.
-- After the one follow-up, no further automated action — status → `no_response` and
-  the contact is retired from the pipeline (no repeat pestering).
+**Origin (2026-08-29)**: designed by reverse-engineering a friend's cold-email
+spreadsheet (`data/Email Mastersheet.xlsx`) to see how he tracked sends/follow-ups/
+replies. One important finding shaped this design: his `Outreach.Stage` column showed
+"Replied" on 851 of 852 sent rows — not a real reply-detection signal, it turned out
+to be a mislabeled "follow-up sequence finished" flag. His actual reply/outcome
+tracking lived entirely in a separate, hand-maintained `Company` sheet (Did Not Reply /
+Rejected / Got Referral / Interview stages / Offer). This module builds the real
+thing — genuine Gmail-thread reply detection — while also adopting his sheet's good
+idea: a manual per-company outcome tracker, since only Arjun can know the real
+conversation outcome, same as his friend could only know his by reading his own inbox.
+
+- **Gmail threading** (`agent/gmail_client.py`): follow-ups are sent onto the same
+  Gmail thread as the contact's initial email — `GmailApiSender.send()` takes an
+  optional `thread_id`, looks up the thread's last message for its `Message-ID`
+  header, sets `In-Reply-To`/`References` and a `Re:`-prefixed subject, and passes
+  `threadId` to the Gmail API. No extra column stores the prior Message-ID; it's
+  fetched live from the thread each time.
+- **Reply detection** (`agent/tracking.py` + `GmailReplyChecker` in
+  `agent/gmail_client.py`): `check_replies` polls each contact's active thread; a
+  message in the thread not from `sender_email` means a real reply, which marks *all*
+  of that contact's `email_queue` rows `replied` — retiring them from follow-up
+  consideration for good.
+- **Bounce detection** (same module): `check_bounces` searches the sender's own inbox
+  for a mailer-daemon delivery-failure message addressed to the recipient (bounce mail
+  doesn't land in the original thread, so this can't be a thread check — a heuristic
+  search, same "not perfect precision by design" tradeoff as the niche classifier and
+  Hiring Posts relevance filter). Marks the row `bounced` and increments
+  `send_log.bounce_count` for its original send date — this is the piece that was
+  missing for §4.6's circuit breaker, which read a permanently-zero `bounce_count`
+  until now.
+- **Follow-up generation** (`agent/followups.py`): **2 follow-ups** per contact (raised
+  from 1, 2026-08-29), each `business_days_wait` (5) business days after the previous
+  email, using `config/templates/followup{1,2}.txt`. **Follow-ups auto-send — they skip
+  the review queue entirely**, inserted directly as `status='approved'` rather than
+  `pending_review` (Arjun's explicit choice; see the decision table in §2 for the
+  human-in-the-loop exception this carves out). They feed straight into the existing
+  `send_approved_emails` path (§4.6) on the next `send_batch.py` run — no separate send
+  code. After the 2nd follow-up's wait period elapses with no reply, status →
+  `no_response` and the contact is retired (no repeat pestering).
+- **Daily entry point**: `scripts/check_replies.py`, meant to run once a day via
+  Windows Task Scheduler *before* `send_batch.py` (same manual-registration pattern as
+  that script — not auto-registered). Order inside it matters: bounces → replies →
+  follow-up generation, so a contact whose bounce/reply was just detected doesn't also
+  get a follow-up queued in the same run.
+- **Manual per-company outcome tracker** (`agent/tracking_dashboard.py`,
+  `companies.outcome_status`/`outcome_notes`): mirrors the friend's `Company` sheet —
+  `did_not_reply | rejected | got_referral | intern_call | interview | on_hold |
+  offer_received`, set by hand via the Tracking Dashboard tab (§4.5). Deliberately
+  never inferred from the automated stage above (e.g. a `no_response` contact isn't
+  auto-marked `did_not_reply` — Arjun might have a referral in progress the automation
+  can't see).
+- **Gmail OAuth scope**: `gmail.readonly` was added alongside `gmail.send` in
+  `agent/gmail_client.SCOPES` for the `threads().get`/`messages().list` calls above —
+  free to change now since no real Gmail credentials were configured yet;
+  `scripts/gmail_auth.py` needs a (re-)run once they are.
+- **Known gap**: no live Gmail send/check has happened yet (same caveat as §8's module
+  7 entry) — reply/bounce detection and follow-up auto-send are verified against a
+  fake `ReplyChecker`/`EmailSender` only so far.
 
 ## 5. Tech stack
 
@@ -294,17 +368,27 @@ Local web app, run with `streamlit run review_app.py`:
 ## 6. Datastore schema (SQLite, `agent.db`)
 
 ```
-companies      id, name, domain, source, raw_tags, niche, status, created_at
+companies      id, name, domain, source, raw_tags, niche, status,
+               outcome_status, outcome_notes (manual per-company outcome
+               tracker, §4.7 -- did_not_reply|rejected|got_referral|
+               intern_call|interview|on_hold|offer_received, NULL until
+               triaged by hand), created_at
 contacts       id, company_id, name, role, role_category (hr|product|other), email,
                verification_confidence, source_api, status, created_at
 email_queue    id, contact_id, company_id, niche, subject, body, kind
-               (initial|followup), attached_resume (bool), status (pending_review|
+               (initial|followup), followup_number (0=initial, 1/2=which
+               follow-up round), attached_resume (bool), status (pending_review|
                approved|rejected|sent|bounced|replied|no_response), gmail_thread_id,
                created_at, sent_at
 send_log       id, date, sent_count, bounce_count   -- drives the warm-up ramp
                and circuit breaker
 send_config    daily_cap, ramp_step, ramp_ceiling    -- single-row config table
 ```
+
+`outcome_status`/`outcome_notes` and `followup_number` were added after the original
+schema shipped (2026-08-29) — `agent/db.py`'s `init_db` migrates an existing `agent.db`
+in place via idempotent `ALTER TABLE` (additive-only, no data loss), not just
+`CREATE TABLE IF NOT EXISTS`.
 
 ## 7. Legal / deliverability / ToS risks and mitigations
 
@@ -313,7 +397,7 @@ send_config    daily_cap, ramp_step, ramp_ceiling    -- single-row config table
 | **LinkedIn/Crunchbase scraping** — ToS violation, account ban risk, legally contested territory (hiQ v. LinkedIn line of cases) | Not used at all. Sourcing restricted to public APIs/open data (§4.1); contact discovery restricted to a licensed email-finder API (§4.3), never scraped from LinkedIn profiles. |
 | **Guessed email addresses** (`first.last@domain.com` patterns) — high bounce rate, hurts sender reputation, sometimes hits wrong/uninvolved people | Only verified-confidence results from the finder API are auto-queued; low-confidence ones are routed to manual check instead of guessed. |
 | **Personal Gmail spam/suspension risk** — cold outreach from a personal account can trigger Google's abuse detection | Low starting cap + gradual ramp (§4.6), spaced sends (not bursts), circuit breaker on bounce rate, human-approved content (reduces spammy-pattern risk vs. templated blasts), Gmail API (not raw SMTP relay, which Google trusts less). |
-| **Spam complaints** — recipients marking as spam damages both deliverability and the personal Gmail account's standing | Every email includes a low-friction opt-out/"let me know if not relevant" line; strictly one follow-up, then automatic retirement — no repeated unsolicited contact. |
+| **Spam complaints** — recipients marking as spam damages both deliverability and the personal Gmail account's standing | Every email includes a low-friction opt-out/"let me know if not relevant" line (§4.4); strictly 2 follow-ups (§4.7), then automatic retirement — no repeated unsolicited contact. |
 | **India DPDP Act 2023** — processing personal data (name + email) of individuals | Data collected is limited to what's needed for outreach (name, role, email, company) and sourced from data the individual/company has made available for business contact (verified business email finder, not scraped personal profiles). No sensitive personal data categories involved. Keep the DB local, not shared/sold, and support deleting a contact's record on request. |
 | **CAN-SPAM / general spam law exposure** | Even though individual job-outreach emails are lower-risk than commercial marketing blasts, the design still includes sender identification and an opt-out line as cheap, standard-practice insurance. |
 
@@ -411,7 +495,24 @@ send_config    daily_cap, ramp_step, ramp_ceiling    -- single-row config table
    full pipeline end-to-end (import → classify → discover → generate → approve →
    send) with a fake sender standing in for Gmail; all three approved drafts came out
    correctly marked `sent` with thread ids.
-8. **Tracking + follow-ups** — reply polling, single follow-up generation.
+8. ✅ **Tracking + follow-ups** — reply/bounce polling, 2-round follow-up generation,
+   tracking dashboard. See §4.7 for the full design (including the friend's-spreadsheet
+   origin) and §4.5 for the dashboard UI.
+   Implemented in `agent/tracking.py` (`check_replies`/`check_bounces` against the
+   `ReplyChecker` interface — same swappable-interface pattern as `EmailSender`/
+   `EmailFinder`/`CompanySource`), `agent/followups.py` (`business_days_since`,
+   `generate_due_followups` — auto-approves rather than queuing for review, see §2's
+   decision table), `agent/gmail_client.py` (`GmailReplyChecker`, plus threading
+   support added to `GmailApiSender.send()`), and `agent/tracking_dashboard.py`
+   (`dashboard_rows`, `summarize`, `set_company_outcome` — DB access only, same
+   Streamlit-free split as `agent/review_queue.py`). `scripts/check_replies.py` is the
+   daily entry point (Windows Task Scheduler, same manual-registration pattern as
+   `send_batch.py`). `review_app.py` gained a second tab for the dashboard.
+   28 new tests across `tests/test_followups.py`, `tests/test_tracking.py`, and
+   `tests/test_tracking_dashboard.py`, plus additions to `tests/test_sending.py` and
+   `tests/test_gmail_client.py` for the threading changes (fake `ReplyChecker`/
+   `EmailSender`, no real Gmail credentials touched — same as the rest of the sending
+   pipeline, nothing has been verified against live Gmail yet). Full suite: 237 passed.
 
 Each module is runnable and testable in isolation against the shared SQLite DB before
 the next one is built — no module should require a later one to exist to be verified.

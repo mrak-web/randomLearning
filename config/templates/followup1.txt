@@ -1,0 +1,10 @@
+Subject: Re: Seeking Product Roles | {{company_name}} | Rapido (Marketplace) | Ashoka University
+
+Hi {{contact_first_name}},
+
+Just wanted to bump this in case it got buried — still very interested in
+product roles at {{company_name}} and would love to hear your thoughts,
+even a quick no.
+
+Best,
+{{sender_name}}

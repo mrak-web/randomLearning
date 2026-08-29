@@ -1,14 +1,23 @@
 -- Cold-email job agent datastore. See PROJECT.md §6 for the design rationale.
 
 CREATE TABLE IF NOT EXISTS companies (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    name        TEXT NOT NULL,
-    domain      TEXT,
-    source      TEXT NOT NULL,              -- yc | producthunt | startup_india | manual_csv
-    raw_tags    TEXT,                       -- JSON array of tags/topics as scraped from the source
-    niche       TEXT,                       -- consumer | fintech | data_saas | ai_devtools | NULL (unclassified)
-    status      TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'classified', 'skipped')),
-    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT NOT NULL,
+    domain          TEXT,
+    source          TEXT NOT NULL,              -- yc | producthunt | startup_india | manual_csv
+    raw_tags        TEXT,                       -- JSON array of tags/topics as scraped from the source
+    niche           TEXT,                       -- consumer | fintech | data_saas | ai_devtools | NULL (unclassified)
+    status          TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'classified', 'skipped')),
+    -- Manual per-company outcome tracker (module 8) -- mirrors the hand-curated
+    -- "Company" sheet found in a friend's cold-email tracker: the real
+    -- reply/interview/offer signal, distinct from the automated per-contact status in
+    -- email_queue below. NULL until Arjun triages a company by hand; allowed values
+    -- (did_not_reply | rejected | got_referral | intern_call | interview | on_hold |
+    -- offer_received) are validated in Python (agent/tracking_dashboard.py), not a DB
+    -- CHECK, so this stays a plain ALTER-TABLE-friendly addition on an existing file.
+    outcome_status  TEXT,
+    outcome_notes   TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_companies_domain ON companies(domain) WHERE domain IS NOT NULL;
@@ -40,6 +49,7 @@ CREATE TABLE IF NOT EXISTS email_queue (
     subject          TEXT NOT NULL,
     body             TEXT NOT NULL,
     kind             TEXT NOT NULL CHECK (kind IN ('initial', 'followup')),
+    followup_number  INTEGER NOT NULL DEFAULT 0,        -- 0 = initial, 1/2 = which follow-up round
     attached_resume  INTEGER NOT NULL DEFAULT 1,        -- 0/1 boolean
     status           TEXT NOT NULL DEFAULT 'pending_review' CHECK (
                         status IN (

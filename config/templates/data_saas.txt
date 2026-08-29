@@ -1,4 +1,4 @@
-Subject: Seeking Product Roles | Rapido (Marketplace) | Ashoka University
+Subject: Seeking Product Roles | {{company_name}} | Rapido (Marketplace) | Ashoka University
 
 Hi {{contact_first_name}},
 
@@ -12,6 +12,9 @@ A couple of quick highlights from Rapido:
 
 Would love to hear back if there are any opportunities you think I'd be a
 fit for. I've attached my resume for your reference.
+
+No worries if this isn't the right fit or timing — feel free to let me know
+either way.
 
 Best,
 {{sender_name}}

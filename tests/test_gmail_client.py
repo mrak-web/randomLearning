@@ -86,3 +86,45 @@ def test_encode_message_round_trips_through_base64():
 
     text_part = parsed.get_payload()[0]
     assert text_part.get_payload() == "Hi Priya, this is the body."
+
+
+def test_build_mime_message_sets_threading_headers_when_given():
+    message = build_mime_message(
+        sender_email="arjun@example.com",
+        to_email="priya@meesho.example",
+        subject="Re: Product role at Meesho",
+        body="Just bumping this.",
+        resume_path=None,
+        in_reply_to_message_id="<original@mail.gmail.com>",
+    )
+
+    assert message["In-Reply-To"] == "<original@mail.gmail.com>"
+    assert message["References"] == "<original@mail.gmail.com>"
+
+
+def test_build_mime_message_omits_threading_headers_by_default():
+    message = build_mime_message(
+        sender_email="arjun@example.com",
+        to_email="priya@meesho.example",
+        subject="Product role at Meesho",
+        body="Hi Priya, ...",
+        resume_path=None,
+    )
+
+    assert message["In-Reply-To"] is None
+    assert message["References"] is None
+
+
+def test_encode_message_includes_thread_id_when_given():
+    message = build_mime_message(
+        sender_email="arjun@example.com",
+        to_email="priya@meesho.example",
+        subject="Product role at Meesho",
+        body="Hi Priya, ...",
+        resume_path=None,
+    )
+
+    encoded = encode_message(message, thread_id="thread-123")
+
+    assert encoded["threadId"] == "thread-123"
+    assert set(encoded.keys()) == {"raw", "threadId"}

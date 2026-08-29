@@ -156,9 +156,9 @@ def test_render_email_substitutes_all_placeholders(story_bank):
         sender_display_name="Arjun Khanna",
     )
 
-    # Subject is a fixed personal-branding line (2026-08-23 redesign) -- no
-    # per-company placeholder in it anymore, unlike the body.
-    assert subject == "Seeking Product Roles | Rapido (Marketplace) | Ashoka University"
+    # Company name is back in the subject (2026-08-29) -- personalization + breaks the
+    # identical-subject-to-many-recipients spam pattern of the prior fixed subject.
+    assert subject == "Seeking Product Roles | Meesho | Rapido (Marketplace) | Ashoka University"
     assert "Meesho" in body
     assert "Priya" in body
     assert "Arjun Khanna" in body
@@ -236,7 +236,7 @@ def test_generate_pending_emails_creates_draft(settings, story_bank):
     assert row["kind"] == "initial"
     assert row["status"] == "pending_review"
     assert row["attached_resume"] == 1
-    assert row["subject"] == "Seeking Product Roles | Rapido (Marketplace) | Ashoka University"
+    assert row["subject"] == "Seeking Product Roles | Meesho | Rapido (Marketplace) | Ashoka University"
     assert "Meesho" in row["body"]
     assert "Priya" in row["body"]
 
@@ -339,15 +339,21 @@ def test_generate_pending_emails_works_across_all_four_niches(settings, story_ba
             conn, story_bank, settings.templates_dir, "Arjun Khanna", True
         )
 
-        rows = conn.execute("SELECT niche, subject, body FROM email_queue").fetchall()
+        rows = conn.execute(
+            "SELECT eq.niche, eq.subject, eq.body, co.name AS company_name "
+            "FROM email_queue eq JOIN companies co ON co.id = eq.company_id"
+        ).fetchall()
 
     niches_generated = {row["niche"] for row in rows}
     assert stats.generated == 4
     assert niches_generated == {"consumer", "fintech", "data_saas", "ai_devtools"}
 
     # niche is still recorded per-row, but every email leads with the Rapido story
-    # regardless of niche (2026-08-23 decision) -- same subject, same bullets.
+    # regardless of niche (2026-08-23 decision) -- same bullets, subject varies only by
+    # company name (2026-08-29: company name restored to the subject line).
     for row in rows:
-        assert row["subject"] == "Seeking Product Roles | Rapido (Marketplace) | Ashoka University"
+        assert row["subject"] == (
+            f"Seeking Product Roles | {row['company_name']} | Rapido (Marketplace) | Ashoka University"
+        )
         assert "Rapido" in row["body"]
         assert story_bank[RESUME_STORY_NICHE].bullets[0] in row["body"]
