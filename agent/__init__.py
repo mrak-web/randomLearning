@@ -100,7 +100,13 @@ from agent.resume_match import (
     score_skills,
     sort_by_match_score,
 )
-from agent.review_queue import PendingDraft, approve_draft, list_pending_drafts, reject_draft
+from agent.review_queue import (
+    PendingDraft,
+    approve_draft,
+    approve_drafts_bulk,
+    list_pending_drafts,
+    reject_draft,
+)
 from agent.sending import (
     EmailSender,
     SendingError,
@@ -137,6 +143,7 @@ __all__ = [
     "map_email_status",
     "PendingDraft",
     "approve_draft",
+    "approve_drafts_bulk",
     "list_pending_drafts",
     "reject_draft",
     "EmailSender",

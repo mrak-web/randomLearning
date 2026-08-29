@@ -85,6 +85,7 @@ class Settings:
     attach_resume_by_default: bool
     sender_email: str
     sender_display_name: str
+    sender_phone: str
     gmail_credentials_path: Path
     gmail_token_path: Path
     sourcing_sources: list[str]
@@ -136,6 +137,7 @@ def load_settings(path: Path | None = None) -> Settings:
         attach_resume_by_default=bool(resume.get("attach_by_default", True)),
         sender_email=sender.get("email", ""),
         sender_display_name=_require(sender, "display_name", f"{path} sender"),
+        sender_phone=sender.get("phone", ""),
         gmail_credentials_path=_resolve_path(
             _require(gmail, "credentials_path", f"{path} gmail")
         ),

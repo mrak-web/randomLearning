@@ -8,7 +8,7 @@ import pytest
 
 from agent.config import load_settings
 from agent.db import connect, init_db
-from agent.review_queue import approve_draft, list_pending_drafts, reject_draft
+from agent.review_queue import approve_draft, approve_drafts_bulk, list_pending_drafts, reject_draft
 
 _email_counter = itertools.count()
 
@@ -133,6 +133,38 @@ def test_approve_draft_saves_edited_body(settings):
     assert row["body"] == "Edited body"
 
 
+def test_approve_draft_saves_edited_subject(settings):
+    init_db(settings.db_path, settings)
+    with connect(settings.db_path) as conn:
+        email_queue_id = _seed_draft(conn, subject="Original subject")
+
+        approve_draft(conn, email_queue_id, edited_subject="Edited subject")
+
+        row = conn.execute(
+            "SELECT status, subject FROM email_queue WHERE id = ?", (email_queue_id,)
+        ).fetchone()
+
+    assert row["status"] == "approved"
+    assert row["subject"] == "Edited subject"
+
+
+def test_approve_draft_saves_edited_subject_and_body_together(settings):
+    init_db(settings.db_path, settings)
+    with connect(settings.db_path) as conn:
+        email_queue_id = _seed_draft(conn, subject="Original subject", body="Original body")
+
+        approve_draft(
+            conn, email_queue_id, edited_subject="New subject", edited_body="New body"
+        )
+
+        row = conn.execute(
+            "SELECT subject, body FROM email_queue WHERE id = ?", (email_queue_id,)
+        ).fetchone()
+
+    assert row["subject"] == "New subject"
+    assert row["body"] == "New body"
+
+
 def test_approve_draft_is_a_noop_on_already_actioned_row(settings):
     init_db(settings.db_path, settings)
     with connect(settings.db_path) as conn:
@@ -170,6 +202,50 @@ def test_reject_draft_is_a_noop_on_already_actioned_row(settings):
 
     assert result is False
     assert row["status"] == "approved"
+
+
+def test_approve_drafts_bulk_approves_all_with_their_own_edits(settings):
+    init_db(settings.db_path, settings)
+    with connect(settings.db_path) as conn:
+        id_a = _seed_draft(conn, company_name="Co A", subject="Subject A", body="Body A")
+        id_b = _seed_draft(conn, company_name="Co B", subject="Subject B", body="Body B")
+
+        approved_count = approve_drafts_bulk(
+            conn,
+            [
+                (id_a, "Edited A", None),
+                (id_b, None, "Edited body B"),
+            ],
+        )
+
+        row_a = conn.execute("SELECT status, subject, body FROM email_queue WHERE id = ?", (id_a,)).fetchone()
+        row_b = conn.execute("SELECT status, subject, body FROM email_queue WHERE id = ?", (id_b,)).fetchone()
+
+    assert approved_count == 2
+    assert row_a["status"] == "approved"
+    assert row_a["subject"] == "Edited A"
+    assert row_a["body"] == "Body A"  # untouched -- None means "leave as-is"
+    assert row_b["status"] == "approved"
+    assert row_b["subject"] == "Subject B"  # untouched
+    assert row_b["body"] == "Edited body B"
+
+
+def test_approve_drafts_bulk_skips_already_actioned_rows(settings):
+    init_db(settings.db_path, settings)
+    with connect(settings.db_path) as conn:
+        id_pending = _seed_draft(conn, company_name="Still Pending")
+        id_rejected = _seed_draft(conn, company_name="Already Rejected", status="rejected")
+
+        approved_count = approve_drafts_bulk(conn, [(id_pending, None, None), (id_rejected, None, None)])
+
+        statuses = {
+            row["id"]: row["status"]
+            for row in conn.execute("SELECT id, status FROM email_queue").fetchall()
+        }
+
+    assert approved_count == 1
+    assert statuses[id_pending] == "approved"
+    assert statuses[id_rejected] == "rejected"  # left alone, not overwritten
 
 
 def test_approved_and_rejected_drafts_disappear_from_queue(settings):

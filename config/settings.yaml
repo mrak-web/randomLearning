@@ -6,8 +6,9 @@ resume:
   attach_by_default: true
 
 sender:
-  email: ""              # personal Gmail address — fill in before module 7 (sending)
+  email: "mr.arjunkhanna@gmail.com"
   display_name: "Arjun Khanna"
+  phone: "+91 9466898689"    # appears in every email signature, below the name
 
 gmail:
   # OAuth client JSON from Google Cloud Console (APIs & Services -> Credentials ->

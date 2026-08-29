@@ -166,6 +166,40 @@ def test_render_email_substitutes_all_placeholders(story_bank):
     assert "{{" not in body
 
 
+def test_render_email_includes_sender_phone_in_signature(story_bank):
+    template_text = (REPO_ROOT / "config" / "templates" / "consumer.txt").read_text(
+        encoding="utf-8"
+    )
+
+    _, body = render_email(
+        template_text,
+        company_name="Meesho",
+        contact_name="Priya Sharma",
+        story=story_bank["consumer"],
+        sender_display_name="Arjun Khanna",
+        sender_phone="+91 9466898689",
+    )
+
+    assert "+91 9466898689" in body
+    assert body.rstrip().endswith("+91 9466898689")
+
+
+def test_render_email_defaults_sender_phone_to_empty(story_bank):
+    template_text = (REPO_ROOT / "config" / "templates" / "consumer.txt").read_text(
+        encoding="utf-8"
+    )
+
+    _, body = render_email(
+        template_text,
+        company_name="Meesho",
+        contact_name="Priya Sharma",
+        story=story_bank["consumer"],
+        sender_display_name="Arjun Khanna",
+    )
+
+    assert "{{" not in body
+
+
 def test_render_email_falls_back_to_there_for_missing_contact_name(story_bank):
     template_text = (REPO_ROOT / "config" / "templates" / "consumer.txt").read_text(
         encoding="utf-8"
@@ -226,7 +260,8 @@ def test_generate_pending_emails_creates_draft(settings, story_bank):
         conn.commit()
 
         stats = generate_pending_emails(
-            conn, story_bank, settings.templates_dir, "Arjun Khanna", True
+            conn, story_bank, settings.templates_dir, "Arjun Khanna", True,
+            sender_phone="+91 9466898689",
         )
 
         row = conn.execute("SELECT * FROM email_queue").fetchone()
@@ -239,6 +274,7 @@ def test_generate_pending_emails_creates_draft(settings, story_bank):
     assert row["subject"] == "Seeking Product Roles | Meesho | Rapido (Marketplace) | Ashoka University"
     assert "Meesho" in row["body"]
     assert "Priya" in row["body"]
+    assert "+91 9466898689" in row["body"]
 
 
 def test_generate_pending_emails_respects_attach_resume_setting(settings, story_bank):

@@ -79,6 +79,7 @@ def generate_due_followups(
     sender_display_name: str,
     business_days_wait: int,
     max_followups: int,
+    sender_phone: str = "",
     today: date | None = None,
 ) -> FollowupStats:
     """For every contact whose latest sent email is due for its next follow-up round,
@@ -112,6 +113,7 @@ def generate_due_followups(
             template_text,
             company_name=row["company_name"],
             contact_name=row["contact_name"],
+            sender_phone=sender_phone,
             sender_display_name=sender_display_name,
         )
 

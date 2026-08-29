@@ -3,34 +3,44 @@
 
 Run with: streamlit run review_app.py
 
-Tab 1 (Review Queue): Approve / Edit (body only) / Reject for initial-email drafts --
-nothing here sends anything. Approving sets status='approved', picked up later by the
-scheduled sender (module 7). Follow-ups never appear here -- they're auto-approved by
-agent/followups.py once due (Arjun's explicit choice, 2026-08-29), so this tab is
-initial emails only.
+Tab 1 (Review Queue): Approve / Edit (subject + body) / Reject for initial-email
+drafts, one at a time or in bulk via checkboxes -- nothing here sends anything.
+Approving sets status='approved', picked up by the scheduled sender (module 7).
+Follow-ups never appear here -- they're auto-approved by agent/followups.py once due
+(Arjun's explicit choice, 2026-08-29), so this tab is initial emails only.
 
 Tab 2 (Tracking Dashboard): read-only automated stage per contact (sent / replied /
-no_response / bounced / ...), plus a manual per-company outcome editor (did_not_reply /
-rejected / got_referral / interview / ...) -- the real funnel signal, which only Arjun
-can know by reading his inbox. Mirrors the two-sheet split found in a friend's
-cold-email tracker this session reverse-engineered: automated status and manually
-curated outcome are deliberately kept separate, never inferred from each other.
+no_response / bounced / ...), the manual per-company outcome editor, and two on-demand
+action buttons. The *actual* daily send happens via a Windows Task Scheduler entry at a
+fixed time (10:30am, see PROJECT.md §4.6) -- decoupling when Arjun reviews/approves
+from when email leaves the outbox, since nothing sends until that scheduled trigger
+runs regardless of when he approves. "Send Now" here is a manual override for testing
+or an urgent same-day send, not the normal path.
 """
 
 from __future__ import annotations
+
+from datetime import date
 
 import streamlit as st
 
 from agent import (
     ALLOWED_OUTCOME_STATUSES,
+    GmailApiSender,
+    GmailReplyChecker,
+    SendingError,
+    check_bounces,
+    check_replies,
     connect,
     dashboard_rows,
+    generate_due_followups,
     init_db,
     load_settings,
+    send_approved_emails,
     set_company_outcome,
     summarize,
 )
-from agent.review_queue import approve_draft, list_pending_drafts, reject_draft
+from agent.review_queue import approve_draft, approve_drafts_bulk, list_pending_drafts, reject_draft
 
 st.set_page_config(page_title="Cold Email Agent", layout="wide")
 
@@ -50,9 +60,30 @@ with review_tab:
     else:
         st.caption(f"{len(drafts)} draft(s) pending review")
 
+        def _apply_select_all():
+            # Runs before the rerun that draws the per-row checkboxes below, so it
+            # can set their session_state directly -- a checkbox's `value=` argument
+            # is only honored the very first time its key is created, not on later
+            # reruns, so toggling "Select all" wouldn't otherwise touch checkboxes
+            # that already exist.
+            value = st.session_state["select_all_drafts"]
+            for draft in drafts:
+                st.session_state[f"select_{draft.email_queue_id}"] = value
+
+        select_all_col, approve_selected_col, _ = st.columns([1, 2, 4])
+        with select_all_col:
+            st.checkbox("Select all", key="select_all_drafts", on_change=_apply_select_all)
+
         for draft in drafts:
             with st.container(border=True):
-                header_col, resume_col = st.columns([4, 1])
+                select_col, header_col, resume_col = st.columns([0.3, 4, 1])
+                with select_col:
+                    st.session_state.setdefault(f"select_{draft.email_queue_id}", False)
+                    st.checkbox(
+                        "Select",
+                        key=f"select_{draft.email_queue_id}",
+                        label_visibility="collapsed",
+                    )
                 with header_col:
                     st.subheader(f"{draft.company_name} — {draft.contact_name or 'no contact name'}")
                     st.caption(
@@ -62,8 +93,8 @@ with review_tab:
                 with resume_col:
                     st.metric("Resume attached", "Yes" if draft.attached_resume else "No")
 
-                st.text_input(
-                    "Subject", value=draft.subject, key=f"subject_{draft.email_queue_id}", disabled=True
+                edited_subject = st.text_input(
+                    "Subject", value=draft.subject, key=f"subject_{draft.email_queue_id}"
                 )
                 edited_body = st.text_area(
                     "Body", value=draft.body, height=240, key=f"body_{draft.email_queue_id}"
@@ -73,7 +104,12 @@ with review_tab:
                 with approve_col:
                     if st.button("Approve", key=f"approve_{draft.email_queue_id}", type="primary"):
                         with connect(settings.db_path) as conn:
-                            approve_draft(conn, draft.email_queue_id, edited_body=edited_body)
+                            approve_draft(
+                                conn,
+                                draft.email_queue_id,
+                                edited_body=edited_body,
+                                edited_subject=edited_subject,
+                            )
                         st.rerun()
                 with reject_col:
                     if st.button("Reject", key=f"reject_{draft.email_queue_id}"):
@@ -81,13 +117,104 @@ with review_tab:
                             reject_draft(conn, draft.email_queue_id)
                         st.rerun()
 
+        selected_ids = [
+            draft.email_queue_id
+            for draft in drafts
+            if st.session_state.get(f"select_{draft.email_queue_id}")
+        ]
+        with approve_selected_col:
+            if st.button(
+                f"Approve Selected ({len(selected_ids)})",
+                type="primary",
+                disabled=not selected_ids,
+            ):
+                edits = [
+                    (
+                        eq_id,
+                        st.session_state.get(f"subject_{eq_id}"),
+                        st.session_state.get(f"body_{eq_id}"),
+                    )
+                    for eq_id in selected_ids
+                ]
+                with connect(settings.db_path) as conn:
+                    approved_count = approve_drafts_bulk(conn, edits)
+                st.success(f"Approved {approved_count} draft(s).")
+                st.rerun()
+
 with dashboard_tab:
     st.title("Tracking Dashboard")
+
+    st.subheader("Actions")
+    st.caption(
+        "The daily 10:30am Task Scheduler run already does both of these automatically. "
+        "Use these only to check something right now or to override the schedule."
+    )
+    action_col1, action_col2 = st.columns(2)
+
+    with action_col1:
+        if st.button("Check Replies & Follow-ups Now"):
+            try:
+                checker = GmailReplyChecker(settings.gmail_token_path)
+            except SendingError as exc:
+                st.error(str(exc))
+            else:
+                with connect(settings.db_path) as conn:
+                    bounced = check_bounces(conn, checker)
+                    replied = check_replies(conn, checker, settings.sender_email)
+                    followup_stats = generate_due_followups(
+                        conn,
+                        templates_dir=settings.templates_dir,
+                        sender_display_name=settings.sender_display_name,
+                        business_days_wait=settings.followup.business_days_wait,
+                        max_followups=settings.followup.max_followups,
+                        sender_phone=settings.sender_phone,
+                        today=date.today(),
+                    )
+                st.success(
+                    f"Bounces detected: {bounced} · Newly replied: {replied} · "
+                    f"Follow-ups auto-approved: {followup_stats.generated} · "
+                    f"Retired (no response): {followup_stats.retired_no_response}"
+                )
+                st.rerun()
+
+    with action_col2:
+        st.caption(
+            "Sends whatever is currently 'approved' right now, with the same spacing/"
+            "cap/circuit-breaker safeguards as the scheduled run — with several "
+            "approved emails this can take a few minutes; keep this tab open."
+        )
+        if st.button("Send Now (bypasses the 10:30am schedule)"):
+            try:
+                sender = GmailApiSender(settings.sender_email, settings.gmail_token_path)
+            except SendingError as exc:
+                st.error(str(exc))
+            else:
+                with connect(settings.db_path) as conn:
+                    stats = send_approved_emails(
+                        conn,
+                        sender,
+                        resume_pdf_path=settings.resume_pdf_path,
+                        bounce_rate_circuit_breaker=settings.send.bounce_rate_circuit_breaker,
+                        today=date.today(),
+                        min_delay_seconds=settings.send.min_delay_seconds,
+                        max_delay_seconds=settings.send.max_delay_seconds,
+                    )
+                if stats.circuit_breaker_tripped:
+                    st.error(
+                        "Circuit breaker tripped on recent bounce rate — nothing sent. "
+                        "Check send_log / email_queue before retrying."
+                    )
+                else:
+                    st.success(f"Sent {stats.sent} email(s). Daily cap: {stats.daily_cap}.")
+                    if stats.failed:
+                        st.warning(f"{stats.failed} failed to send (left approved for retry).")
+                st.rerun()
 
     with connect(settings.db_path) as conn:
         summary = summarize(conn)
         rows = dashboard_rows(conn)
 
+    st.subheader("Summary")
     metric_cols = st.columns(5)
     metric_cols[0].metric("Sent, awaiting reply", summary.sent)
     metric_cols[1].metric("Replied", summary.replied)

@@ -254,6 +254,14 @@ cold-email tracker** (`data/Email Mastersheet.xlsx`) to design module 8 below:
   already uses the same Rapido content regardless of niche, so a follow-up
   needs no niche variant either), rendered by the new
   `render_followup_email()` in `agent/email_generation.py`.
+- **Phone number added to the signature** (`sender.phone` in
+  `config/settings.yaml`, a new `{{sender_phone}}` placeholder rendered
+  below `{{sender_name}}` in all 6 templates) — Arjun's request, so a
+  recipient who wants to reach out can do so directly. Threaded through
+  `render_email`/`render_followup_email`/`generate_pending_emails`/
+  `generate_due_followups` as an optional kwarg defaulting to `""` (never a
+  hard requirement — an unset phone just renders as a blank signature line
+  rather than failing template substitution).
 
 **Setup note**: the resume you shared is a `.docx`
 (`Arjun_Khanna_CV_V4.docx`). It needs a one-time export to PDF (Word/Google Docs →
@@ -265,20 +273,57 @@ send is unnecessary work for a file that doesn't change per-email.
 Local web app, run with `streamlit run review_app.py`, now two tabs:
 - **Review Queue tab**: table/list view of pending *initial-email* drafts: company,
   contact, niche, subject, body preview, resume attachment confirmation. Per-row:
-  **Approve**, **Edit** (inline body edit before approving), **Reject**. Approving sets
-  status `approved` (eligible for the next send batch); nothing sends from here
-  directly — sending is a separate scheduled step, so there's always a buffer between
-  "approved" and "actually left the outbox." Follow-ups never appear here — see §4.7,
-  they auto-approve.
-- **Tracking Dashboard tab** (added 2026-08-29, §4.7): summary metrics, a per-contact
-  automated-stage table, and the manual per-company outcome editor.
+  **Approve**, **Edit** (both subject and body are editable, 2026-08-29 — subject was
+  previously read-only), **Reject**. **Bulk approve** (2026-08-29): a checkbox per
+  draft plus a "Select all," and an "Approve Selected (N)" button that approves every
+  checked draft in one action, each with whatever edits are currently in its own
+  subject/body fields (`agent.review_queue.approve_drafts_bulk`, built on the same
+  per-row `approve_draft` so single and bulk approval share one code path). Approving
+  sets status `approved` (eligible for the next send); nothing sends from here
+  directly — sending is a separate scheduled step (§4.6), so there's always a buffer
+  between "approved" and "actually left the outbox." Follow-ups never appear here —
+  see §4.7, they auto-approve.
+- **Tracking Dashboard tab** (added 2026-08-29, §4.7): an **Actions** panel (two
+  on-demand buttons, see §4.6/§4.7 for what they do and why they're not the normal
+  path), summary metrics, a per-contact automated-stage table, and the manual
+  per-company outcome editor.
 
 ### 4.6 Scheduled Sending (daily caps + deliverability safeguards)
 
-- A script run once/day (Windows Task Scheduler, or manually) picks up to
-  `daily_cap` rows with status `approved`, sends via **Gmail API** (not raw SMTP —
-  gives proper threading, and reply tracking for free), and marks them `sent` with
-  Gmail `thread_id` stored for §4.7.
+- A script run once/day picks up to `daily_cap` rows with status `approved`, sends
+  via **Gmail API** (not raw SMTP — gives proper threading, and reply tracking for
+  free), and marks them `sent` with Gmail `thread_id` stored for §4.7.
+
+**Delivery clock (2026-08-29).** Arjun's requirement: reviewing/approving drafts can
+happen whenever he gets to it (his own example: 9pm), but sending should always
+happen at a **fixed time the next morning (10:30am)**, never at whatever time he
+happened to approve something. This needs something running *unattended* to actually
+fire at that fixed time — a button alone can't do it, since nothing executes code 13
+hours after a click unless something stays running to wait for the clock. Discussed
+directly with Arjun (he'd initially said he wanted to trigger things himself rather
+than use Task Scheduler, but that framing was for a different, simpler ask — a fixed
+unattended daily time genuinely requires an OS-level scheduler, not a dashboard
+button):
+- `scripts/daily_run.ps1` — wrapper that runs `check_replies.py` then `send_batch.py`
+  in sequence, logging to `data/daily_run.log` (gitignored). Only pipes stdout through
+  `Out-File`, not stderr — redirecting a native command's stderr in Windows PowerShell
+  5.1 wraps each line as a `NativeCommandError` and mangled the log's encoding in
+  testing; non-fatal warnings (e.g. a Python version deprecation notice) are dropped
+  from the log rather than fixed, since they don't affect what the script actually does.
+- Registered as a **Windows Task Scheduler** entry (`ColdEmailAgent_DailyRun`, `schtasks
+  /create ... /sc daily /st 10:30`) — fires once daily at 10:30am regardless of when
+  Arjun approved anything the night before. It only ever sends what's already
+  `approved`; if nothing was approved, `send_batch.py` finds nothing to do and exits
+  cleanly (verified — ran it manually with 0 approved rows, correctly logged `Sent: 0`
+  and made a real, harmless Gmail reply/bounce check).
+  To remove or inspect it later: `schtasks /query /tn "ColdEmailAgent_DailyRun" /v` or
+  `schtasks /delete /tn "ColdEmailAgent_DailyRun"`, or via the Task Scheduler GUI.
+- **Manual override**: the Tracking Dashboard tab's Actions panel (§4.5) has a
+  "Send Now" button that calls `send_approved_emails` immediately, with the same
+  spacing/cap/circuit-breaker safeguards as the scheduled run — for testing or an
+  occasional urgent same-day send, not the normal path. A "Check Replies & Follow-ups
+  Now" button does the same for `check_bounces`/`check_replies`/
+  `generate_due_followups` on demand.
 - **Warm-up ramp**: cap starts at 10/day, +2-3/day per week as long as bounce/complaint
   rate stays low, capped at a ceiling you set once comfortable (e.g. 25-30/day). Ramp
   state lives in a small `send_config` table, not hardcoded.
@@ -329,11 +374,11 @@ conversation outcome, same as his friend could only know his by reading his own 
   `send_approved_emails` path (§4.6) on the next `send_batch.py` run — no separate send
   code. After the 2nd follow-up's wait period elapses with no reply, status →
   `no_response` and the contact is retired (no repeat pestering).
-- **Daily entry point**: `scripts/check_replies.py`, meant to run once a day via
-  Windows Task Scheduler *before* `send_batch.py` (same manual-registration pattern as
-  that script — not auto-registered). Order inside it matters: bounces → replies →
-  follow-up generation, so a contact whose bounce/reply was just detected doesn't also
-  get a follow-up queued in the same run.
+- **Daily entry point**: `scripts/check_replies.py`, run once a day *before*
+  `send_batch.py` via the `ColdEmailAgent_DailyRun` Task Scheduler entry (§4.6's
+  "Delivery clock" — `scripts/daily_run.ps1` runs both in sequence). Order inside it
+  matters: bounces → replies → follow-up generation, so a contact whose bounce/reply
+  was just detected doesn't also get a follow-up queued in the same run.
 - **Manual per-company outcome tracker** (`agent/tracking_dashboard.py`,
   `companies.outcome_status`/`outcome_notes`): mirrors the friend's `Company` sheet —
   `did_not_reply | rejected | got_referral | intern_call | interview | on_hold |
@@ -342,12 +387,16 @@ conversation outcome, same as his friend could only know his by reading his own 
   auto-marked `did_not_reply` — Arjun might have a referral in progress the automation
   can't see).
 - **Gmail OAuth scope**: `gmail.readonly` was added alongside `gmail.send` in
-  `agent/gmail_client.SCOPES` for the `threads().get`/`messages().list` calls above —
-  free to change now since no real Gmail credentials were configured yet;
-  `scripts/gmail_auth.py` needs a (re-)run once they are.
-- **Known gap**: no live Gmail send/check has happened yet (same caveat as §8's module
-  7 entry) — reply/bounce detection and follow-up auto-send are verified against a
-  fake `ReplyChecker`/`EmailSender` only so far.
+  `agent/gmail_client.SCOPES` for the `threads().get`/`messages().list` calls above.
+- **Live since 2026-08-29**: `mr.arjunkhanna@gmail.com` connected via
+  `scripts/gmail_auth.py` (both scopes granted in one consent flow), `sender.email`/
+  `sender.phone` filled into `config/settings.yaml`, and one stale pre-2026-08-24
+  `approved` row (old content, corrupted subject) manually rejected before the
+  Task Scheduler entry went live so it wouldn't get sent by accident. `daily_run.ps1`
+  has been run manually once end-to-end against real Gmail (real bounce/reply check,
+  0 found; 0 approved rows at the time, so nothing sent) — reply/bounce detection and
+  follow-up auto-send are otherwise still only unit-tested against a fake
+  `ReplyChecker`/`EmailSender`, not yet exercised with a real reply or bounce.
 
 ## 5. Tech stack
 
@@ -496,23 +545,35 @@ in place via idempotent `ALTER TABLE` (additive-only, no data loss), not just
    send) with a fake sender standing in for Gmail; all three approved drafts came out
    correctly marked `sent` with thread ids.
 8. ✅ **Tracking + follow-ups** — reply/bounce polling, 2-round follow-up generation,
-   tracking dashboard. See §4.7 for the full design (including the friend's-spreadsheet
-   origin) and §4.5 for the dashboard UI.
+   tracking dashboard, and (2026-08-29 follow-on) bulk approve, editable subject,
+   phone number in signature, dashboard action buttons, and the Task Scheduler
+   delivery clock. See §4.7 for the full design (including the friend's-spreadsheet
+   origin) and §4.5/§4.6 for the dashboard UI and delivery-timing design.
    Implemented in `agent/tracking.py` (`check_replies`/`check_bounces` against the
    `ReplyChecker` interface — same swappable-interface pattern as `EmailSender`/
    `EmailFinder`/`CompanySource`), `agent/followups.py` (`business_days_since`,
    `generate_due_followups` — auto-approves rather than queuing for review, see §2's
    decision table), `agent/gmail_client.py` (`GmailReplyChecker`, plus threading
-   support added to `GmailApiSender.send()`), and `agent/tracking_dashboard.py`
+   support added to `GmailApiSender.send()`), `agent/tracking_dashboard.py`
    (`dashboard_rows`, `summarize`, `set_company_outcome` — DB access only, same
-   Streamlit-free split as `agent/review_queue.py`). `scripts/check_replies.py` is the
-   daily entry point (Windows Task Scheduler, same manual-registration pattern as
-   `send_batch.py`). `review_app.py` gained a second tab for the dashboard.
-   28 new tests across `tests/test_followups.py`, `tests/test_tracking.py`, and
-   `tests/test_tracking_dashboard.py`, plus additions to `tests/test_sending.py` and
-   `tests/test_gmail_client.py` for the threading changes (fake `ReplyChecker`/
-   `EmailSender`, no real Gmail credentials touched — same as the rest of the sending
-   pipeline, nothing has been verified against live Gmail yet). Full suite: 237 passed.
+   Streamlit-free split as `agent/review_queue.py`), and `agent/review_queue.py`
+   (`approve_draft` gained `edited_subject`; new `approve_drafts_bulk`).
+   `scripts/check_replies.py` and `scripts/send_batch.py` run daily via
+   `scripts/daily_run.ps1`, registered as the `ColdEmailAgent_DailyRun` Task
+   Scheduler entry (§4.6). `review_app.py` gained a second tab (dashboard + Actions
+   panel) and bulk-select/editable-subject in the first.
+   28 tests across the three new `tests/test_followups.py` / `tests/test_tracking.py` /
+   `tests/test_tracking_dashboard.py` files plus threading additions to
+   `tests/test_sending.py`/`tests/test_gmail_client.py`, and 6 more for the
+   2026-08-29 follow-on (`tests/test_review_queue.py`'s edited-subject/bulk-approve
+   cases, `tests/test_email_generation.py`'s phone-number cases). Full suite: 243
+   passed.
+   **Live since 2026-08-29** (see §4.7's "Live since" note) —
+   `mr.arjunkhanna@gmail.com` connected, real OAuth flow completed, real (harmless)
+   Gmail reply/bounce check run via `daily_run.ps1`, Task Scheduler entry confirmed
+   registered (`schtasks /query`, next run 2026-08-30 10:30am). No real cold email has
+   been sent yet — 11 real drafts are sitting at `pending_review` waiting for Arjun's
+   review in the dashboard.
 
 Each module is runnable and testable in isolation against the shared SQLite DB before
 the next one is built — no module should require a later one to exist to be verified.

@@ -58,26 +58,51 @@ def list_pending_drafts(conn: sqlite3.Connection) -> list[PendingDraft]:
 
 
 def approve_draft(
-    conn: sqlite3.Connection, email_queue_id: int, edited_body: str | None = None
+    conn: sqlite3.Connection,
+    email_queue_id: int,
+    edited_body: str | None = None,
+    edited_subject: str | None = None,
 ) -> bool:
-    """Marks a pending draft approved, optionally saving an edited body first.
+    """Marks a pending draft approved, optionally saving an edited subject/body first.
 
     Returns False (no-op) if the row isn't currently pending_review — e.g. it was
     already actioned in another browser tab.
     """
+    sets = ["status = 'approved'"]
+    params: list[str] = []
+    if edited_subject is not None:
+        sets.append("subject = ?")
+        params.append(edited_subject)
     if edited_body is not None:
-        cursor = conn.execute(
-            "UPDATE email_queue SET body = ?, status = 'approved' "
-            "WHERE id = ? AND status = 'pending_review'",
-            (edited_body, email_queue_id),
-        )
-    else:
-        cursor = conn.execute(
-            "UPDATE email_queue SET status = 'approved' WHERE id = ? AND status = 'pending_review'",
-            (email_queue_id,),
-        )
+        sets.append("body = ?")
+        params.append(edited_body)
+    params.append(str(email_queue_id))
+
+    cursor = conn.execute(
+        f"UPDATE email_queue SET {', '.join(sets)} WHERE id = ? AND status = 'pending_review'",
+        params,
+    )
     conn.commit()
     return cursor.rowcount > 0
+
+
+def approve_drafts_bulk(
+    conn: sqlite3.Connection,
+    edits: list[tuple[int, str | None, str | None]],
+) -> int:
+    """Approves multiple pending drafts in one action, each optionally with its own
+    edited (subject, body) -- the dashboard's "Approve Selected" button. Each item is
+    (email_queue_id, edited_subject, edited_body); pass None for a field to leave it
+    untouched. Returns how many rows were actually approved (rows already actioned
+    elsewhere are silently skipped, same no-op semantics as approve_draft).
+    """
+    approved = 0
+    for email_queue_id, edited_subject, edited_body in edits:
+        if approve_draft(
+            conn, email_queue_id, edited_body=edited_body, edited_subject=edited_subject
+        ):
+            approved += 1
+    return approved
 
 
 def reject_draft(conn: sqlite3.Connection, email_queue_id: int) -> bool:

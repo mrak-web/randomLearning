@@ -53,6 +53,7 @@ def main() -> None:
             sender_display_name=settings.sender_display_name,
             business_days_wait=settings.followup.business_days_wait,
             max_followups=settings.followup.max_followups,
+            sender_phone=settings.sender_phone,
             today=today,
         )
 

@@ -91,6 +91,7 @@ def render_email(
     contact_name: str | None,
     story: NicheStory,
     sender_display_name: str,
+    sender_phone: str = "",
 ) -> tuple[str, str]:
     subject_template, body_template = parse_template(template_text)
     context = {
@@ -98,6 +99,7 @@ def render_email(
         "contact_first_name": get_first_name(contact_name),
         "story_bullets": build_story_bullets(story),
         "sender_name": sender_display_name,
+        "sender_phone": sender_phone,
     }
     subject = _substitute(subject_template, context)
     body = _substitute(body_template, context)
@@ -110,6 +112,7 @@ def render_followup_email(
     company_name: str,
     contact_name: str | None,
     sender_display_name: str,
+    sender_phone: str = "",
 ) -> tuple[str, str]:
     """Renders a follow-up template (config/templates/followup{1,2}.txt) -- no story
     bullets, since a follow-up is a short bump, not a repeat of the original pitch.
@@ -119,6 +122,7 @@ def render_followup_email(
         "company_name": company_name,
         "contact_first_name": get_first_name(contact_name),
         "sender_name": sender_display_name,
+        "sender_phone": sender_phone,
     }
     subject = _substitute(subject_template, context)
     body = _substitute(body_template, context)
@@ -138,6 +142,7 @@ def generate_pending_emails(
     templates_dir: Path,
     sender_display_name: str,
     attach_resume_by_default: bool,
+    sender_phone: str = "",
 ) -> GenerationStats:
     """Drafts an initial email for every verified contact that doesn't have one yet."""
     rows = conn.execute(
@@ -173,6 +178,7 @@ def generate_pending_emails(
             contact_name=row["contact_name"],
             story=story_bank[RESUME_STORY_NICHE],
             sender_display_name=sender_display_name,
+            sender_phone=sender_phone,
         )
 
         conn.execute(

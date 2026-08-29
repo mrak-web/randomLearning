@@ -78,6 +78,7 @@ def test_generate_due_followups_generates_first_round_when_due(settings):
             sender_display_name="Arjun Khanna",
             business_days_wait=5,
             max_followups=2,
+            sender_phone="+91 9466898689",
             today=date(2026, 8, 24),  # 5 business days after 2026-08-17 (Monday)
         )
 
@@ -93,6 +94,7 @@ def test_generate_due_followups_generates_first_round_when_due(settings):
     assert row["gmail_thread_id"] == "thread-abc"  # threaded onto the original
     assert row["attached_resume"] == 0
     assert "Meesho" in row["subject"]
+    assert "+91 9466898689" in row["body"]
 
 
 def test_generate_due_followups_not_yet_due_generates_nothing(settings):

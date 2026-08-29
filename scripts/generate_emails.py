@@ -33,6 +33,7 @@ def main() -> None:
             settings.templates_dir,
             settings.sender_display_name,
             settings.attach_resume_by_default,
+            sender_phone=settings.sender_phone,
         )
 
     print(f"Generated {stats.generated} draft(s) with status=pending_review")
