@@ -13,17 +13,28 @@ the real pipeline doesn't get listed twice.
 
 from __future__ import annotations
 
+import json
+import sqlite3
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
 import openpyxl
 
+from agent.classification import classify_pending_companies
+from agent.contact_discovery import categorize_role
+from agent.email_generation import generate_pending_emails
+
 RAW_SHEET = "raw"
 CANDIDATES_SHEET = "Pipeline Candidates"
 CANDIDATES_HEADER = [
     "Company", "Contact Name", "Designation", "Email", "Domain", "Status", "First Seen", "Note",
 ]
+# 1-based column indices into CANDIDATES_HEADER, for reading/updating specific cells.
+_COL_EMAIL, _COL_STATUS = 4, 6
+
+MASTERSHEET_PATH = Path("data/Email Mastersheet.xlsx")
+MASTERSHEET_SOURCE = "mastersheet"
 
 
 def _domain_from_email(email: str) -> str | None:
@@ -159,4 +170,148 @@ def sync_pipeline_candidates(
         already_in_pipeline_db=already_in_db,
         already_tracked=already_tracked,
         newly_tracked=newly_tracked,
+    )
+
+
+def count_new_candidates(xlsx_path: Path) -> int:
+    """How many Pipeline Candidates rows are still status='New' (not yet pulled into
+    agent.db) -- shown on the dashboard so Arjun knows how much is left before he has
+    to run sync_pipeline_candidates again for a fresh batch from 'raw'.
+    """
+    if not xlsx_path.exists():
+        return 0
+    wb = openpyxl.load_workbook(xlsx_path, read_only=True, data_only=True)
+    if CANDIDATES_SHEET not in wb.sheetnames:
+        return 0
+    ws = wb[CANDIDATES_SHEET]
+    return sum(
+        1
+        for row in ws.iter_rows(min_row=2, values_only=True)
+        if row and len(row) > _COL_STATUS - 1 and row[_COL_STATUS - 1] == "New"
+    )
+
+
+def _find_or_create_company(
+    conn: sqlite3.Connection, name: str, domain: str | None, raw_tags: list[str]
+) -> tuple[int, bool]:
+    """Same dedupe-by-domain shape as agent/apollo_import.py's helper -- kept as its
+    own small copy rather than a shared import since the two sources (Apollo CSV vs.
+    this workbook) have nothing else in common and a shared abstraction would only
+    couple them for no benefit.
+    """
+    if domain:
+        existing = conn.execute("SELECT id FROM companies WHERE domain = ?", (domain,)).fetchone()
+        if existing is not None:
+            return existing["id"], False
+    cursor = conn.execute(
+        "INSERT INTO companies (name, domain, source, raw_tags) VALUES (?, ?, ?, ?)",
+        (name, domain, MASTERSHEET_SOURCE, json.dumps(raw_tags)),
+    )
+    return cursor.lastrowid, True
+
+
+@dataclass(frozen=True)
+class BatchImportStats:
+    candidates_pulled: int = 0
+    companies_created: int = 0
+    companies_matched: int = 0
+    contacts_inserted: int = 0
+    contacts_skipped_duplicate: int = 0
+    companies_classified: int = 0
+    companies_unclassifiable: int = 0
+    drafts_generated: int = 0
+    remaining_new: int = 0
+
+
+def import_next_batch(
+    conn: sqlite3.Connection,
+    xlsx_path: Path,
+    *,
+    story_bank: dict,
+    templates_dir: Path,
+    sender_display_name: str,
+    attach_resume_by_default: bool,
+    sender_phone: str,
+    niche_keywords: dict[str, list[str]],
+    niche_order: list[str],
+    batch_size: int = 10,
+) -> BatchImportStats:
+    """Pulls the next `batch_size` status='New' rows (in the order they were first
+    tracked) from the Pipeline Candidates sheet into agent.db: creates/matches the
+    company, inserts the contact (status='verified' -- these are Arjun's own
+    hand-curated finds, trusted the same way a manually-sourced contact already is),
+    classifies newly-created companies by niche, and generates drafts for whatever
+    ends up verified+classified. Marks the pulled rows 'Imported' in the sheet so a
+    later call continues from the next unpulled batch rather than repeating this one --
+    this, plus dedupe-by-domain against agent.db, is what stops the same contact ever
+    being pulled (and later emailed) twice across repeated "pull more" clicks.
+    """
+    wb = openpyxl.load_workbook(xlsx_path)
+    if CANDIDATES_SHEET not in wb.sheetnames:
+        return BatchImportStats()
+    ws = wb[CANDIDATES_SHEET]
+
+    pending_rows = [
+        (idx, row)
+        for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2)
+        if row and len(row) > _COL_STATUS - 1 and row[_COL_STATUS - 1] == "New"
+    ]
+    batch = pending_rows[:batch_size]
+    remaining_new = len(pending_rows) - len(batch)
+
+    companies_created = 0
+    companies_matched = 0
+    contacts_inserted = 0
+    contacts_skipped_duplicate = 0
+
+    for row_idx, row in batch:
+        company, contact_name, designation, email, domain, _status, _first_seen, note = row[:8]
+        raw_tags = [note] if note else []
+
+        company_id, created = _find_or_create_company(conn, company, domain, raw_tags)
+        if created:
+            companies_created += 1
+        else:
+            companies_matched += 1
+
+        role_category = categorize_role(designation)
+        try:
+            conn.execute(
+                """
+                INSERT INTO contacts
+                    (company_id, name, role, role_category, email,
+                     verification_confidence, source_api, status)
+                VALUES (?, ?, ?, ?, ?, 1.0, ?, 'verified')
+                """,
+                (company_id, contact_name, designation, role_category, email, MASTERSHEET_SOURCE),
+            )
+            contacts_inserted += 1
+        except sqlite3.IntegrityError:
+            contacts_skipped_duplicate += 1
+
+        ws.cell(row=row_idx, column=_COL_STATUS, value="Imported")
+
+    conn.commit()
+    wb.save(xlsx_path)
+
+    classification_stats = classify_pending_companies(conn, niche_keywords, niche_order)
+    generation_stats = generate_pending_emails(
+        conn,
+        story_bank,
+        templates_dir,
+        sender_display_name,
+        attach_resume_by_default,
+        sender_phone=sender_phone,
+    )
+
+    return BatchImportStats(
+        candidates_pulled=len(batch),
+        companies_created=companies_created,
+        companies_matched=companies_matched,
+        contacts_inserted=contacts_inserted,
+        contacts_skipped_duplicate=contacts_skipped_duplicate,
+        companies_classified=classification_stats.classified,
+        companies_unclassifiable=classification_stats.unclassifiable,
+        drafts_generated=generation_stats.generated,
+        remaining_new=remaining_new,
     )

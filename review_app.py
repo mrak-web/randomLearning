@@ -26,6 +26,7 @@ import streamlit as st
 
 from agent import (
     ALLOWED_OUTCOME_STATUSES,
+    MASTERSHEET_PATH,
     SCOPES,
     GmailApiSender,
     GmailReplyChecker,
@@ -35,11 +36,15 @@ from agent import (
     check_replies,
     check_scheduler_status,
     connect,
+    count_new_candidates,
     dashboard_rows,
     generate_due_followups,
+    import_next_batch,
     init_db,
     is_weekend,
+    load_niche_keywords,
     load_settings,
+    load_story_bank,
     send_approved_emails,
     set_company_outcome,
     summarize,
@@ -55,6 +60,40 @@ review_tab, dashboard_tab = st.tabs(["Review Queue", "Tracking Dashboard"])
 
 with review_tab:
     st.title("Cold Email Review Queue")
+
+    st.subheader("Pipeline Candidates")
+    remaining_candidates = count_new_candidates(MASTERSHEET_PATH)
+    pull_col, count_col = st.columns([1, 3])
+    with pull_col:
+        pull_size = min(10, remaining_candidates)
+        if st.button(f"Pull {pull_size} more" if pull_size else "Pull more", disabled=pull_size == 0):
+            story_bank = load_story_bank(settings.story_bank_path)
+            niche_keywords = load_niche_keywords(settings.niche_keywords_path)
+            with connect(settings.db_path) as conn:
+                batch_stats = import_next_batch(
+                    conn,
+                    MASTERSHEET_PATH,
+                    story_bank=story_bank,
+                    templates_dir=settings.templates_dir,
+                    sender_display_name=settings.sender_display_name,
+                    attach_resume_by_default=settings.attach_resume_by_default,
+                    sender_phone=settings.sender_phone,
+                    niche_keywords=niche_keywords,
+                    niche_order=settings.niches.order,
+                    batch_size=10,
+                )
+            st.success(
+                f"Pulled {batch_stats.candidates_pulled} candidate(s): "
+                f"{batch_stats.drafts_generated} draft(s) generated, "
+                f"{batch_stats.companies_unclassifiable} company(s) couldn't be classified yet "
+                f"(no niche match, no draft until fixed). {batch_stats.remaining_new} left in the tracker."
+            )
+            st.rerun()
+    with count_col:
+        st.caption(
+            f"{remaining_candidates} candidate(s) waiting in the mastersheet tracker "
+            "(data/Email Mastersheet.xlsx, 'Pipeline Candidates' sheet)."
+        )
 
     with connect(settings.db_path) as conn:
         drafts = list_pending_drafts(conn)

@@ -17,10 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from agent import connect, load_settings
-from agent.mastersheet_tracking import sync_pipeline_candidates
-
-MASTERSHEET_PATH = Path("data/Email Mastersheet.xlsx")
+from agent import MASTERSHEET_PATH, connect, load_settings, sync_pipeline_candidates
 
 
 def main() -> None:

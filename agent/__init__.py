@@ -70,6 +70,17 @@ from agent.gmail_client import (
     encode_message,
 )
 from agent.linkedin_export import write_linkedin_excel
+from agent.mastersheet_tracking import (
+    CANDIDATES_SHEET,
+    MASTERSHEET_PATH,
+    BatchImportStats,
+    CandidateRow,
+    TrackingStats as MastersheetTrackingStats,
+    count_new_candidates,
+    import_next_batch,
+    read_raw_candidates,
+    sync_pipeline_candidates,
+)
 from agent.linkedin_jobs import (
     ApifyLinkedInJobSearch,
     LinkedInJobPosting,
@@ -253,6 +264,15 @@ __all__ = [
     "search_hiring_posts",
     "write_hiring_posts_excel",
     "write_linkedin_excel",
+    "CANDIDATES_SHEET",
+    "MASTERSHEET_PATH",
+    "BatchImportStats",
+    "CandidateRow",
+    "MastersheetTrackingStats",
+    "count_new_candidates",
+    "import_next_batch",
+    "read_raw_candidates",
+    "sync_pipeline_candidates",
     "JobMatchScore",
     "attach_match_scores",
     "compute_match_score",
