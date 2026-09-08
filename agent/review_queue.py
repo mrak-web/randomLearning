@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
+from datetime import datetime
 
 
 @dataclass(frozen=True)
@@ -67,9 +68,13 @@ def approve_draft(
 
     Returns False (no-op) if the row isn't currently pending_review — e.g. it was
     already actioned in another browser tab.
+
+    Records approved_at (distinct from created_at, the draft's generation time) so
+    send_approved_emails can send in the order Arjun actually approved things, not the
+    order they happened to be generated in.
     """
-    sets = ["status = 'approved'"]
-    params: list[str] = []
+    sets = ["status = 'approved'", "approved_at = ?"]
+    params: list[str] = [datetime.now().isoformat(timespec="seconds")]
     if edited_subject is not None:
         sets.append("subject = ?")
         params.append(edited_subject)

@@ -52,7 +52,7 @@ niches:
 send:
   start_daily_cap: 10
   ramp_step: 2
-  ramp_ceiling: 25
+  ramp_ceiling: 15   # steady-state max once warmed up (Arjun's decision, 2026-09-09)
   ramp_interval_days: 7
   bounce_rate_circuit_breaker: 0.05   # halt sending and flag for review above this bounce rate
   # Randomized pause between individual sends within one run, so a batch doesn't

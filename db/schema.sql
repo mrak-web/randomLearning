@@ -59,6 +59,8 @@ CREATE TABLE IF NOT EXISTS email_queue (
                      ),
     gmail_thread_id  TEXT,
     created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    approved_at      TEXT,                               -- set when status flips to 'approved';
+                                                           -- drives send order (§4.6), not created_at
     sent_at          TEXT
 );
 

@@ -180,7 +180,7 @@ def send_approved_emails(
         FROM email_queue eq
         JOIN contacts ct ON ct.id = eq.contact_id
         WHERE eq.status = 'approved'
-        ORDER BY eq.created_at ASC, eq.id ASC
+        ORDER BY eq.approved_at ASC, eq.id ASC
         LIMIT ?
         """,
         (remaining,),

@@ -118,6 +118,20 @@ def test_approve_draft_sets_status_and_keeps_body_when_not_edited(settings):
     assert row["body"] == "Original body"
 
 
+def test_approve_draft_records_approved_at(settings):
+    init_db(settings.db_path, settings)
+    with connect(settings.db_path) as conn:
+        email_queue_id = _seed_draft(conn)
+
+        approve_draft(conn, email_queue_id)
+
+        row = conn.execute(
+            "SELECT approved_at FROM email_queue WHERE id = ?", (email_queue_id,)
+        ).fetchone()
+
+    assert row["approved_at"] is not None
+
+
 def test_approve_draft_saves_edited_body(settings):
     init_db(settings.db_path, settings)
     with connect(settings.db_path) as conn:

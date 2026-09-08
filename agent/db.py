@@ -24,6 +24,7 @@ _ADDED_COLUMNS = {
     ],
     "email_queue": [
         ("followup_number", "INTEGER NOT NULL DEFAULT 0"),
+        ("approved_at", "TEXT"),
     ],
 }
 
@@ -47,6 +48,20 @@ def _migrate_existing_columns(conn: sqlite3.Connection) -> None:
         for name, ddl_type in columns:
             if name not in existing:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl_type}")
+    _backfill_legacy_approved_at(conn)
+
+
+def _backfill_legacy_approved_at(conn: sqlite3.Connection) -> None:
+    """Rows approved before the approved_at column existed (2026-09-09) have no record
+    of when they were actually approved -- created_at (draft generation time) is the
+    best available proxy, so send order (agent/sending.py) still degrades gracefully to
+    generation order for those legacy rows instead of an undefined NULL-first order.
+    Safe to run every init_db call: only touches rows still missing approved_at.
+    """
+    conn.execute(
+        "UPDATE email_queue SET approved_at = created_at "
+        "WHERE approved_at IS NULL AND status NOT IN ('pending_review', 'rejected')"
+    )
 
 
 def _seed_send_config(conn: sqlite3.Connection, settings: Settings) -> None:

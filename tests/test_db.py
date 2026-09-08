@@ -73,6 +73,47 @@ def test_table_counts_starts_empty(settings):
     assert counts["send_config"] == 1
 
 
+def test_migrate_backfills_approved_at_for_legacy_approved_rows_only(settings):
+    """approved_at (added 2026-09-09) didn't exist when earlier rows were approved --
+    init_db's migration should backfill it from created_at for rows that passed
+    through 'approved' at some point, but leave still-pending/rejected rows untouched
+    since they were never approved.
+    """
+    init_db(settings.db_path, settings)
+    with connect(settings.db_path) as conn:
+        company_id = conn.execute(
+            "INSERT INTO companies (name, source) VALUES ('Acme', 'manual_csv')"
+        ).lastrowid
+        contact_id = conn.execute(
+            "INSERT INTO contacts (company_id, email, status) VALUES (?, 'a@acme.com', 'verified')",
+            (company_id,),
+        ).lastrowid
+        approved_id = conn.execute(
+            "INSERT INTO email_queue (contact_id, company_id, subject, body, kind, status, "
+            "created_at) VALUES (?, ?, 's', 'b', 'initial', 'approved', '2026-01-01T00:00:00')",
+            (contact_id, company_id),
+        ).lastrowid
+        pending_id = conn.execute(
+            "INSERT INTO email_queue (contact_id, company_id, subject, body, kind, status, "
+            "created_at) VALUES (?, ?, 's', 'b', 'initial', 'pending_review', '2026-01-02T00:00:00')",
+            (contact_id, company_id),
+        ).lastrowid
+        conn.commit()
+
+    init_db(settings.db_path, settings)  # re-run migration, as if against a legacy db
+
+    with connect(settings.db_path) as conn:
+        approved_row = conn.execute(
+            "SELECT approved_at FROM email_queue WHERE id = ?", (approved_id,)
+        ).fetchone()
+        pending_row = conn.execute(
+            "SELECT approved_at FROM email_queue WHERE id = ?", (pending_id,)
+        ).fetchone()
+
+    assert approved_row["approved_at"] == "2026-01-01T00:00:00"
+    assert pending_row["approved_at"] is None
+
+
 def test_foreign_keys_enforced(settings):
     init_db(settings.db_path, settings)
 

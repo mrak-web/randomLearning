@@ -50,7 +50,14 @@ def _fake_sleep_recorder():
 
 
 def _insert_approved_email(
-    conn, *, company_name, contact_email, attached_resume=1, created_at=None, gmail_thread_id=None
+    conn,
+    *,
+    company_name,
+    contact_email,
+    attached_resume=1,
+    created_at=None,
+    approved_at=None,
+    gmail_thread_id=None,
 ) -> int:
     company_id = conn.execute(
         "INSERT INTO companies (name, source, niche, status) VALUES (?, 'manual_csv', 'consumer', 'classified')",
@@ -61,23 +68,21 @@ def _insert_approved_email(
         "VALUES (?, ?, ?, 'hr', 'verified')",
         (company_id, "Contact Person", contact_email),
     ).lastrowid
+    columns = ["contact_id", "company_id", "niche", "subject", "body", "kind", "attached_resume", "status", "gmail_thread_id"]
+    values = [
+        contact_id, company_id, "consumer", f"Subject for {company_name}", "Body text", "initial",
+        attached_resume, "approved", gmail_thread_id,
+    ]
     if created_at is not None:
-        eq_id = conn.execute(
-            "INSERT INTO email_queue (contact_id, company_id, niche, subject, body, kind, "
-            "attached_resume, status, created_at, gmail_thread_id) VALUES (?, ?, 'consumer', ?, ?, "
-            "'initial', ?, 'approved', ?, ?)",
-            (
-                contact_id, company_id, f"Subject for {company_name}", "Body text", attached_resume,
-                created_at, gmail_thread_id,
-            ),
-        ).lastrowid
-    else:
-        eq_id = conn.execute(
-            "INSERT INTO email_queue (contact_id, company_id, niche, subject, body, kind, "
-            "attached_resume, status, gmail_thread_id) VALUES (?, ?, 'consumer', ?, ?, 'initial', ?, "
-            "'approved', ?)",
-            (contact_id, company_id, f"Subject for {company_name}", "Body text", attached_resume, gmail_thread_id),
-        ).lastrowid
+        columns.append("created_at")
+        values.append(created_at)
+    if approved_at is not None:
+        columns.append("approved_at")
+        values.append(approved_at)
+    placeholders = ", ".join("?" for _ in values)
+    eq_id = conn.execute(
+        f"INSERT INTO email_queue ({', '.join(columns)}) VALUES ({placeholders})", values
+    ).lastrowid
     conn.commit()
     return eq_id
 
@@ -427,6 +432,40 @@ def test_send_approved_emails_passes_existing_thread_id_for_followups(settings):
         )
 
     assert sender.calls[0][4] == "thread-original"
+
+
+def test_send_approved_emails_orders_by_approval_time_not_creation_time(settings):
+    """A draft generated earlier but approved later should send *after* one generated
+    later but approved first -- Arjun's actual approval order, not generation order
+    (2026-09-09)."""
+    init_db(settings.db_path, settings)
+    with connect(settings.db_path) as conn:
+        _insert_approved_email(
+            conn,
+            company_name="GeneratedFirst",
+            contact_email="first-generated@example.com",
+            created_at="2026-01-01T00:00:00",
+            approved_at="2026-01-05T00:00:00",  # approved last
+        )
+        _insert_approved_email(
+            conn,
+            company_name="GeneratedSecond",
+            contact_email="second-generated@example.com",
+            created_at="2026-01-02T00:00:00",
+            approved_at="2026-01-03T00:00:00",  # approved first
+        )
+
+        sender = FakeEmailSender()
+        send_approved_emails(
+            conn,
+            sender,
+            resume_pdf_path=FAKE_RESUME,
+            bounce_rate_circuit_breaker=settings.send.bounce_rate_circuit_breaker,
+            today=date(2026, 1, 6),  # a Tuesday -- avoid the weekend send guardrail
+        )
+
+    sent_order = [call[0] for call in sender.calls]
+    assert sent_order == ["second-generated@example.com", "first-generated@example.com"]
 
 
 def test_send_approved_emails_no_approved_rows_is_clean(settings):
