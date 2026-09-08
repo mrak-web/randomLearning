@@ -158,7 +158,7 @@ def test_render_email_substitutes_all_placeholders(story_bank):
 
     # Company name is back in the subject (2026-08-29) -- personalization + breaks the
     # identical-subject-to-many-recipients spam pattern of the prior fixed subject.
-    assert subject == "Seeking Product Roles | Meesho | Rapido (Marketplace) | Ashoka University"
+    assert subject == "Seeking Product Roles at Meesho | Currently Product Intern at Rapido | Ashoka University"
     assert "Meesho" in body
     assert "Priya" in body
     assert "Arjun Khanna" in body
@@ -181,7 +181,7 @@ def test_render_email_includes_sender_phone_in_signature(story_bank):
     )
 
     assert "+91 9466898689" in body
-    assert body.rstrip().endswith("+91 9466898689")
+    assert body.rstrip().endswith("https://www.linkedin.com/in/arjun-khanna-838205213/")
 
 
 def test_render_email_defaults_sender_phone_to_empty(story_bank):
@@ -271,7 +271,7 @@ def test_generate_pending_emails_creates_draft(settings, story_bank):
     assert row["kind"] == "initial"
     assert row["status"] == "pending_review"
     assert row["attached_resume"] == 1
-    assert row["subject"] == "Seeking Product Roles | Meesho | Rapido (Marketplace) | Ashoka University"
+    assert row["subject"] == "Seeking Product Roles at Meesho | Currently Product Intern at Rapido | Ashoka University"
     assert "Meesho" in row["body"]
     assert "Priya" in row["body"]
     assert "+91 9466898689" in row["body"]
@@ -389,7 +389,7 @@ def test_generate_pending_emails_works_across_all_four_niches(settings, story_ba
     # company name (2026-08-29: company name restored to the subject line).
     for row in rows:
         assert row["subject"] == (
-            f"Seeking Product Roles | {row['company_name']} | Rapido (Marketplace) | Ashoka University"
+            f"Seeking Product Roles at {row['company_name']} | Currently Product Intern at Rapido | Ashoka University"
         )
         assert "Rapido" in row["body"]
-        assert story_bank[RESUME_STORY_NICHE].bullets[0] in row["body"]
+        assert "rides per rider" in row["body"]

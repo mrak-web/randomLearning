@@ -54,6 +54,13 @@ from agent.email_generation import (
     render_followup_email,
 )
 from agent.followups import FollowupStats, business_days_since, generate_due_followups
+from agent.health import (
+    GmailTokenStatus,
+    SchedulerStatus,
+    check_gmail_token,
+    check_scheduler_status,
+    parse_schtasks_verbose,
+)
 from agent.gmail_client import (
     SCOPES,
     GmailApiSender,
@@ -112,6 +119,7 @@ from agent.sending import (
     SendingError,
     SendStats,
     apply_ramp_if_due,
+    is_weekend,
     send_approved_emails,
 )
 from agent.sourcing import (
@@ -150,6 +158,7 @@ __all__ = [
     "SendingError",
     "SendStats",
     "apply_ramp_if_due",
+    "is_weekend",
     "send_approved_emails",
     "SCOPES",
     "GmailApiSender",
@@ -169,6 +178,11 @@ __all__ = [
     "FollowupStats",
     "business_days_since",
     "generate_due_followups",
+    "GmailTokenStatus",
+    "SchedulerStatus",
+    "check_gmail_token",
+    "check_scheduler_status",
+    "parse_schtasks_verbose",
     "TrackingStats",
     "check_bounces",
     "check_replies",

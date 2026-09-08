@@ -12,6 +12,7 @@ from agent.sending import (
     EmailSender,
     SendingError,
     apply_ramp_if_due,
+    is_weekend,
     send_approved_emails,
 )
 
@@ -443,3 +444,89 @@ def test_send_approved_emails_no_approved_rows_is_clean(settings):
     assert stats.sent == 0
     assert stats.failed == 0
     assert sender.calls == []
+
+
+# ---------------------------------------------------------------------------
+# weekend guardrail (Arjun's decision, 2026-09-06: nothing sends Sat/Sun unless
+# explicitly overridden)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("day", [date(2026, 1, 3), date(2026, 1, 4)])  # Sat, Sun
+def test_is_weekend_true_for_saturday_and_sunday(day):
+    assert is_weekend(day) is True
+
+
+@pytest.mark.parametrize("day", [date(2026, 1, 1), date(2026, 1, 2), date(2026, 1, 5)])  # Thu, Fri, Mon
+def test_is_weekend_false_for_weekdays(day):
+    assert is_weekend(day) is False
+
+
+@pytest.mark.parametrize("weekend_day", [date(2026, 1, 3), date(2026, 1, 4)])  # Sat, Sun
+def test_send_approved_emails_skips_on_weekend_by_default(settings, weekend_day):
+    init_db(settings.db_path, settings)
+    with connect(settings.db_path) as conn:
+        _insert_approved_email(conn, company_name="Meesho", contact_email="priya@meesho.example")
+
+        sender = FakeEmailSender()
+        stats = send_approved_emails(
+            conn,
+            sender,
+            resume_pdf_path=FAKE_RESUME,
+            bounce_rate_circuit_breaker=settings.send.bounce_rate_circuit_breaker,
+            today=weekend_day,
+        )
+
+        row = conn.execute("SELECT status FROM email_queue").fetchone()
+
+    assert stats.skipped_weekend is True
+    assert stats.sent == 0
+    assert sender.calls == []
+    assert row["status"] == "approved"  # untouched, waits for the next weekday run
+
+
+def test_send_approved_emails_sends_on_weekend_when_explicitly_allowed(settings):
+    init_db(settings.db_path, settings)
+    with connect(settings.db_path) as conn:
+        _insert_approved_email(conn, company_name="Meesho", contact_email="priya@meesho.example")
+
+        sender = FakeEmailSender()
+        stats = send_approved_emails(
+            conn,
+            sender,
+            resume_pdf_path=FAKE_RESUME,
+            bounce_rate_circuit_breaker=settings.send.bounce_rate_circuit_breaker,
+            today=date(2026, 1, 3),  # Saturday
+            allow_weekend=True,
+        )
+
+        row = conn.execute("SELECT status FROM email_queue").fetchone()
+
+    assert stats.skipped_weekend is False
+    assert stats.sent == 1
+    assert row["status"] == "sent"
+
+
+def test_send_approved_emails_weekend_skip_checked_before_circuit_breaker(settings):
+    """The weekend gate is a hard stop -- it should short-circuit even when the
+    circuit breaker would also have blocked the send, so the reported reason for
+    nothing going out is unambiguous."""
+    init_db(settings.db_path, settings)
+    with connect(settings.db_path) as conn:
+        conn.execute(
+            "INSERT INTO send_log (date, sent_count, bounce_count) VALUES ('2025-12-31', 10, 10)"
+        )
+        conn.commit()
+        _insert_approved_email(conn, company_name="Meesho", contact_email="priya@meesho.example")
+
+        sender = FakeEmailSender()
+        stats = send_approved_emails(
+            conn,
+            sender,
+            resume_pdf_path=FAKE_RESUME,
+            bounce_rate_circuit_breaker=0.05,
+            today=date(2026, 1, 3),  # Saturday
+        )
+
+    assert stats.skipped_weekend is True
+    assert stats.circuit_breaker_tripped is False

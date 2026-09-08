@@ -5,6 +5,7 @@ data/*
 .env
 credentials.json
 token.json
+streamlit_review.log
 
 # Python
 __pycache__/

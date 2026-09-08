@@ -26,15 +26,19 @@ import streamlit as st
 
 from agent import (
     ALLOWED_OUTCOME_STATUSES,
+    SCOPES,
     GmailApiSender,
     GmailReplyChecker,
     SendingError,
     check_bounces,
+    check_gmail_token,
     check_replies,
+    check_scheduler_status,
     connect,
     dashboard_rows,
     generate_due_followups,
     init_db,
+    is_weekend,
     load_settings,
     send_approved_emails,
     set_company_outcome,
@@ -144,6 +148,33 @@ with review_tab:
 with dashboard_tab:
     st.title("Tracking Dashboard")
 
+    st.subheader("System Health")
+    st.caption(
+        "Live checks for the two things that can silently stop the daily send: the "
+        "Gmail token and the Task Scheduler entry. Checked fresh on every page load."
+    )
+    health_col1, health_col2 = st.columns(2)
+
+    with health_col1:
+        token_status = check_gmail_token(settings.gmail_token_path, SCOPES)
+        if token_status.ok:
+            st.success(f"Gmail token: {token_status.detail}")
+        else:
+            st.error(f"Gmail token: {token_status.detail}")
+
+    with health_col2:
+        scheduler_status = check_scheduler_status("ColdEmailAgent_DailyRun")
+        if scheduler_status.ok:
+            st.success(f"Scheduled task: {scheduler_status.detail}")
+        else:
+            st.error(f"Scheduled task: {scheduler_status.detail}")
+        if scheduler_status.next_run_time or scheduler_status.last_run_time:
+            st.caption(
+                f"Next run: {scheduler_status.next_run_time or '—'} · "
+                f"Last run: {scheduler_status.last_run_time or '—'} · "
+                f"Logon mode: {scheduler_status.logon_mode or '—'}"
+            )
+
     st.subheader("Actions")
     st.caption(
         "The daily 10:30am Task Scheduler run already does both of these automatically. "
@@ -183,31 +214,56 @@ with dashboard_tab:
             "cap/circuit-breaker safeguards as the scheduled run — with several "
             "approved emails this can take a few minutes; keep this tab open."
         )
-        if st.button("Send Now (bypasses the 10:30am schedule)"):
+
+        def _send_now(*, allow_weekend: bool) -> None:
             try:
                 sender = GmailApiSender(settings.sender_email, settings.gmail_token_path)
             except SendingError as exc:
                 st.error(str(exc))
+                return
+            with connect(settings.db_path) as conn:
+                stats = send_approved_emails(
+                    conn,
+                    sender,
+                    resume_pdf_path=settings.resume_pdf_path,
+                    bounce_rate_circuit_breaker=settings.send.bounce_rate_circuit_breaker,
+                    today=date.today(),
+                    min_delay_seconds=settings.send.min_delay_seconds,
+                    max_delay_seconds=settings.send.max_delay_seconds,
+                    allow_weekend=allow_weekend,
+                )
+            if stats.circuit_breaker_tripped:
+                st.error(
+                    "Circuit breaker tripped on recent bounce rate — nothing sent. "
+                    "Check send_log / email_queue before retrying."
+                )
             else:
-                with connect(settings.db_path) as conn:
-                    stats = send_approved_emails(
-                        conn,
-                        sender,
-                        resume_pdf_path=settings.resume_pdf_path,
-                        bounce_rate_circuit_breaker=settings.send.bounce_rate_circuit_breaker,
-                        today=date.today(),
-                        min_delay_seconds=settings.send.min_delay_seconds,
-                        max_delay_seconds=settings.send.max_delay_seconds,
-                    )
-                if stats.circuit_breaker_tripped:
-                    st.error(
-                        "Circuit breaker tripped on recent bounce rate — nothing sent. "
-                        "Check send_log / email_queue before retrying."
-                    )
-                else:
-                    st.success(f"Sent {stats.sent} email(s). Daily cap: {stats.daily_cap}.")
-                    if stats.failed:
-                        st.warning(f"{stats.failed} failed to send (left approved for retry).")
+                st.success(f"Sent {stats.sent} email(s). Daily cap: {stats.daily_cap}.")
+                if stats.failed:
+                    st.warning(f"{stats.failed} failed to send (left approved for retry).")
+
+        # No emails should leave the outbox on a Saturday/Sunday (Arjun's guardrail,
+        # 2026-09-06) -- this button can still override it, but only after an explicit
+        # confirmation click, never on the first press.
+        if st.session_state.get("weekend_send_pending"):
+            st.warning(
+                "Today is a weekend — this pipeline doesn't send on weekends. "
+                "Send anyway?"
+            )
+            confirm_col, cancel_col = st.columns(2)
+            if confirm_col.button("Yes, send anyway", key="confirm_weekend_send"):
+                st.session_state["weekend_send_pending"] = False
+                _send_now(allow_weekend=True)
+                st.rerun()
+            if cancel_col.button("Cancel", key="cancel_weekend_send"):
+                st.session_state["weekend_send_pending"] = False
+                st.rerun()
+        elif st.button("Send Now (bypasses the 10:30am schedule)"):
+            if is_weekend(date.today()):
+                st.session_state["weekend_send_pending"] = True
+                st.rerun()
+            else:
+                _send_now(allow_weekend=False)
                 st.rerun()
 
     with connect(settings.db_path) as conn:

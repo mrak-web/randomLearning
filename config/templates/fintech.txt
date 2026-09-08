@@ -1,21 +1,16 @@
-Subject: Seeking Product Roles | {{company_name}} | Rapido (Marketplace) | Ashoka University
+Subject: Seeking Product Roles at {{company_name}} | Currently Product Intern at Rapido | Ashoka University
 
 Hi {{contact_first_name}},
 
-I don't want to take up too much of your time, so I'll keep this quick. I'm
-Arjun — I'm currently a Product Intern at Rapido, on the marketplace team,
-where I work on matching. I'm exploring product roles and would love to be
-considered for one at {{company_name}}.
+I'll keep this quick. I'm Arjun — I'm currently working on the Marketplace product team at Rapido, specifically on matching: deciding the best strategy for pairing a captain with a customer, and everything that happens between when you request a cab and when you're dropped off. It's been high-impact work, and I'm looking to bring that same impact to a product role elsewhere, ideally with more responsibility.
 
-A couple of quick highlights from Rapido:
-{{story_bullets}}
+Along the way, I've moved the needle on metrics like ride cancellations, net orders, and rides per rider.
 
-Would love to hear back if there are any opportunities you think I'd be a
-fit for. I've attached my resume for your reference.
+I also bring a couple of years of analytics experience, so I'm comfortable working with data directly rather than leaning on a data scientist — a mix of product sense and data fluency that makes for a strong, independent entry-level PM.
 
-No worries if this isn't the right fit or timing — feel free to let me know
-either way.
+I've attached my resume — if there's a role at {{company_name}} you think I'd be a fit for, I'd love to hear back and discuss further.
 
 Best,
 {{sender_name}}
 {{sender_phone}}
+https://www.linkedin.com/in/arjun-khanna-838205213/

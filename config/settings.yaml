@@ -2,7 +2,8 @@
 
 resume:
   # Export Arjun_Khanna_CV_V4.docx to PDF once and drop it here (data/ is gitignored).
-  pdf_path: "./data/resume.pdf"
+  # Filename matters -- it's used as-is for the email attachment's filename.
+  pdf_path: "./data/Arjun_Khanna_Resume.pdf"
   attach_by_default: true
 
 sender:

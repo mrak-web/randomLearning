@@ -44,6 +44,11 @@ def main() -> None:
             max_delay_seconds=settings.send.max_delay_seconds,
         )
 
+    if stats.skipped_weekend:
+        print("Today is a weekend — skipping the automatic send. Approved emails stay")
+        print("queued and will go out at the next weekday's 10:30am run.")
+        return
+
     if stats.circuit_breaker_tripped:
         print("Circuit breaker tripped: the most recent day's bounce rate exceeded the")
         print("threshold. Nothing was sent. Review send_log and email_queue before retrying.")

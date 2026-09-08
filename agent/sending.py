@@ -119,11 +119,19 @@ def _recent_bounce_rate_exceeds_threshold(conn: sqlite3.Connection, threshold: f
     return (row["bounce_count"] / row["sent_count"]) > threshold
 
 
+def is_weekend(day: date) -> bool:
+    """Saturday/Sunday check (Arjun's decision, 2026-09-06) — no sends should leave the
+    outbox on a non-working day, whether approved just now or days ago.
+    """
+    return day.weekday() >= 5
+
+
 @dataclass(frozen=True)
 class SendStats:
     sent: int = 0
     failed: int = 0
     circuit_breaker_tripped: bool = False
+    skipped_weekend: bool = False
     daily_cap: int = 0
     remaining_capacity: int = 0
 
@@ -138,13 +146,23 @@ def send_approved_emails(
     min_delay_seconds: float = 0.0,
     max_delay_seconds: float = 0.0,
     sleep_fn: Callable[[float, float], None] = _default_sleep,
+    allow_weekend: bool = False,
 ) -> SendStats:
     """Sends up to today's remaining daily-cap capacity of approved emails.
 
     Rows that fail to send stay at status='approved' (retried on the next run) rather
     than being marked bounced — a synchronous send-time failure isn't the same thing
     as an asynchronous delivery bounce (§4.7 handles those).
+
+    Approved rows never leave the outbox on a Saturday/Sunday unless the caller passes
+    allow_weekend=True (the dashboard's "Send Now" button does this only after the user
+    explicitly confirms a warning) — the scheduled daily run never sets it, so an
+    approval made on a Friday/Saturday/Sunday just waits at status='approved' until the
+    next weekday's 10:30am run. Rows are left untouched, not rejected.
     """
+    if is_weekend(today) and not allow_weekend:
+        return SendStats(skipped_weekend=True)
+
     if _recent_bounce_rate_exceeds_threshold(conn, bounce_rate_circuit_breaker):
         return SendStats(circuit_breaker_tripped=True)
 
