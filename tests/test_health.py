@@ -13,7 +13,7 @@ HostName:                             PC
 TaskName:                             \\ColdEmailAgent_DailyRun
 Next Run Time:                        09-09-2026 10:30:00
 Status:                               Ready
-Logon Mode:                           S4U
+Logon Mode:                           Interactive/Background
 Last Run Time:                        08-09-2026 10:30:03
 Last Result:                          0
 """
@@ -31,12 +31,17 @@ Last Result:                          -2147020576
 
 def test_parse_schtasks_verbose_splits_on_first_colon():
     fields = parse_schtasks_verbose(SCHTASKS_OUTPUT_HEALTHY)
-    assert fields["Logon Mode"] == "S4U"
+    assert fields["Logon Mode"] == "Interactive/Background"
     assert fields["Last Result"] == "0"
     assert fields["Next Run Time"] == "09-09-2026 10:30:00"
 
 
 def test_check_scheduler_status_ok_when_s4u_and_success(monkeypatch):
+    """S4U logon type is reported by schtasks as 'Interactive/Background', not the
+    literal string 'S4U' -- this is a regression test for a false-positive the
+    substring-based check produced (it matched "interactive" inside that string and
+    wrongly flagged a correctly-configured S4U task as broken, 2026-09-08)."""
+
     class FakeResult:
         returncode = 0
         stdout = SCHTASKS_OUTPUT_HEALTHY
@@ -46,7 +51,7 @@ def test_check_scheduler_status_ok_when_s4u_and_success(monkeypatch):
 
     status = check_scheduler_status("ColdEmailAgent_DailyRun")
     assert status.ok is True
-    assert status.logon_mode == "S4U"
+    assert status.logon_mode == "Interactive/Background"
 
 
 def test_check_scheduler_status_flags_interactive_logon_mismatch(monkeypatch):

@@ -120,9 +120,13 @@ def check_scheduler_status(task_name: str) -> SchedulerStatus:
     next_run = fields.get("Next Run Time")
 
     problems = []
-    if logon_mode and "interactive" in logon_mode.lower():
+    # schtasks reports the broken (Interactive-logon-type) case as exactly
+    # "Interactive only". S4U shows as "Interactive/Background" -- despite also
+    # containing "interactive", that one runs fine unattended, so this must be an
+    # equality check against the known-bad string, not a substring match.
+    if logon_mode and logon_mode.strip().lower() == "interactive only":
         problems.append(
-            "logon mode is still 'Interactive only' -- the task won't run unless "
+            "logon mode is 'Interactive only' -- the task won't run unless "
             "you're actively logged on at trigger time; switch it to S4U"
         )
     if last_result and last_result != "0":
