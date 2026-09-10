@@ -16,7 +16,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from agent import GmailApiSender, SendingError, connect, init_db, load_settings, send_approved_emails
+from agent import (
+    GmailApiSender,
+    SendAlreadyInProgressError,
+    SendingError,
+    connect,
+    init_db,
+    load_settings,
+    send_approved_emails,
+)
 
 
 def main() -> None:
@@ -33,16 +41,21 @@ def main() -> None:
         print(str(exc))
         raise SystemExit(1)
 
-    with connect(settings.db_path) as conn:
-        stats = send_approved_emails(
-            conn,
-            sender,
-            resume_pdf_path=settings.resume_pdf_path,
-            bounce_rate_circuit_breaker=settings.send.bounce_rate_circuit_breaker,
-            today=date.today(),
-            min_delay_seconds=settings.send.min_delay_seconds,
-            max_delay_seconds=settings.send.max_delay_seconds,
-        )
+    try:
+        with connect(settings.db_path) as conn:
+            stats = send_approved_emails(
+                conn,
+                sender,
+                resume_pdf_path=settings.resume_pdf_path,
+                bounce_rate_circuit_breaker=settings.send.bounce_rate_circuit_breaker,
+                today=date.today(),
+                db_path=settings.db_path,
+                min_delay_seconds=settings.send.min_delay_seconds,
+                max_delay_seconds=settings.send.max_delay_seconds,
+            )
+    except SendAlreadyInProgressError as exc:
+        print(str(exc))
+        raise SystemExit(1)
 
     if stats.skipped_weekend:
         print("Today is a weekend — skipping the automatic send. Approved emails stay")

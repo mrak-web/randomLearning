@@ -10,6 +10,7 @@ from agent.config import load_settings
 from agent.db import connect, init_db
 from agent.sending import (
     EmailSender,
+    SendAlreadyInProgressError,
     SendingError,
     apply_ramp_if_due,
     is_weekend,
@@ -181,6 +182,7 @@ def test_send_approved_emails_sends_and_marks_sent(settings):
             resume_pdf_path=FAKE_RESUME,
             bounce_rate_circuit_breaker=settings.send.bounce_rate_circuit_breaker,
             today=date(2026, 1, 1),
+            db_path=settings.db_path,
         )
 
         row = conn.execute("SELECT status, gmail_thread_id, sent_at FROM email_queue").fetchone()
@@ -210,6 +212,7 @@ def test_send_approved_emails_passes_none_when_resume_not_attached(settings):
             resume_pdf_path=FAKE_RESUME,
             bounce_rate_circuit_breaker=settings.send.bounce_rate_circuit_breaker,
             today=date(2026, 1, 1),
+            db_path=settings.db_path,
         )
 
     assert sender.calls[0][3] is None
@@ -230,6 +233,7 @@ def test_send_approved_emails_respects_daily_cap(settings):
             resume_pdf_path=FAKE_RESUME,
             bounce_rate_circuit_breaker=settings.send.bounce_rate_circuit_breaker,
             today=date(2026, 1, 1),
+            db_path=settings.db_path,
         )
 
         remaining_approved = conn.execute(
@@ -258,6 +262,7 @@ def test_send_approved_emails_accounts_for_already_sent_today(settings):
             resume_pdf_path=FAKE_RESUME,
             bounce_rate_circuit_breaker=settings.send.bounce_rate_circuit_breaker,
             today=date(2026, 1, 1),
+            db_path=settings.db_path,
         )
 
         log_row_count = conn.execute(
@@ -285,6 +290,7 @@ def test_send_approved_emails_no_remaining_capacity_sends_nothing(settings):
             resume_pdf_path=FAKE_RESUME,
             bounce_rate_circuit_breaker=settings.send.bounce_rate_circuit_breaker,
             today=date(2026, 1, 1),
+            db_path=settings.db_path,
         )
 
     assert stats.sent == 0
@@ -308,6 +314,7 @@ def test_send_approved_emails_circuit_breaker_trips_and_sends_nothing(settings):
             resume_pdf_path=FAKE_RESUME,
             bounce_rate_circuit_breaker=0.05,
             today=date(2026, 1, 1),
+            db_path=settings.db_path,
         )
 
         row = conn.execute("SELECT status FROM email_queue").fetchone()
@@ -334,6 +341,7 @@ def test_send_approved_emails_circuit_breaker_not_tripped_below_threshold(settin
             resume_pdf_path=FAKE_RESUME,
             bounce_rate_circuit_breaker=0.05,
             today=date(2026, 1, 1),
+            db_path=settings.db_path,
         )
 
     assert stats.circuit_breaker_tripped is False
@@ -355,6 +363,7 @@ def test_send_approved_emails_send_failure_leaves_row_approved(settings):
             resume_pdf_path=FAKE_RESUME,
             bounce_rate_circuit_breaker=settings.send.bounce_rate_circuit_breaker,
             today=date(2026, 1, 1),
+            db_path=settings.db_path,
         )
 
         statuses = {
@@ -382,6 +391,7 @@ def test_send_approved_emails_sleeps_between_but_not_after_last(settings):
             resume_pdf_path=FAKE_RESUME,
             bounce_rate_circuit_breaker=settings.send.bounce_rate_circuit_breaker,
             today=date(2026, 1, 1),
+            db_path=settings.db_path,
             min_delay_seconds=1,
             max_delay_seconds=2,
             sleep_fn=sleep_fn,
@@ -406,6 +416,7 @@ def test_send_approved_emails_no_sleep_when_max_delay_zero(settings):
             resume_pdf_path=FAKE_RESUME,
             bounce_rate_circuit_breaker=settings.send.bounce_rate_circuit_breaker,
             today=date(2026, 1, 1),
+            db_path=settings.db_path,
             sleep_fn=sleep_fn,
         )
 
@@ -429,6 +440,7 @@ def test_send_approved_emails_passes_existing_thread_id_for_followups(settings):
             resume_pdf_path=FAKE_RESUME,
             bounce_rate_circuit_breaker=settings.send.bounce_rate_circuit_breaker,
             today=date(2026, 1, 1),
+            db_path=settings.db_path,
         )
 
     assert sender.calls[0][4] == "thread-original"
@@ -462,6 +474,7 @@ def test_send_approved_emails_orders_by_approval_time_not_creation_time(settings
             resume_pdf_path=FAKE_RESUME,
             bounce_rate_circuit_breaker=settings.send.bounce_rate_circuit_breaker,
             today=date(2026, 1, 6),  # a Tuesday -- avoid the weekend send guardrail
+            db_path=settings.db_path,
         )
 
     sent_order = [call[0] for call in sender.calls]
@@ -478,6 +491,7 @@ def test_send_approved_emails_no_approved_rows_is_clean(settings):
             resume_pdf_path=FAKE_RESUME,
             bounce_rate_circuit_breaker=settings.send.bounce_rate_circuit_breaker,
             today=date(2026, 1, 1),
+            db_path=settings.db_path,
         )
 
     assert stats.sent == 0
@@ -514,6 +528,7 @@ def test_send_approved_emails_skips_on_weekend_by_default(settings, weekend_day)
             resume_pdf_path=FAKE_RESUME,
             bounce_rate_circuit_breaker=settings.send.bounce_rate_circuit_breaker,
             today=weekend_day,
+            db_path=settings.db_path,
         )
 
         row = conn.execute("SELECT status FROM email_queue").fetchone()
@@ -536,6 +551,7 @@ def test_send_approved_emails_sends_on_weekend_when_explicitly_allowed(settings)
             resume_pdf_path=FAKE_RESUME,
             bounce_rate_circuit_breaker=settings.send.bounce_rate_circuit_breaker,
             today=date(2026, 1, 3),  # Saturday
+            db_path=settings.db_path,
             allow_weekend=True,
         )
 
@@ -544,6 +560,114 @@ def test_send_approved_emails_sends_on_weekend_when_explicitly_allowed(settings)
     assert stats.skipped_weekend is False
     assert stats.sent == 1
     assert row["status"] == "sent"
+
+
+# ---------------------------------------------------------------------------
+# concurrent-send lock (2026-09-10 double-send incident: two "Send Now" clicks
+# raced each other and emailed several contacts, e.g. vaibhav.haseja@viacom18.com,
+# twice for real even though email_queue only shows one 'sent' row each)
+# ---------------------------------------------------------------------------
+
+
+def test_send_approved_emails_rejects_concurrent_call(settings):
+    init_db(settings.db_path, settings)
+    lock_path = settings.db_path.parent / "send.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path.write_text("12345")
+
+    with connect(settings.db_path) as conn:
+        _insert_approved_email(conn, company_name="Meesho", contact_email="priya@meesho.example")
+        sender = FakeEmailSender()
+
+        with pytest.raises(SendAlreadyInProgressError):
+            send_approved_emails(
+                conn,
+                sender,
+                resume_pdf_path=FAKE_RESUME,
+                bounce_rate_circuit_breaker=settings.send.bounce_rate_circuit_breaker,
+                today=date(2026, 1, 1),
+                db_path=settings.db_path,
+            )
+
+        row = conn.execute("SELECT status FROM email_queue").fetchone()
+
+    assert sender.calls == []
+    assert row["status"] == "approved"  # never touched -- the lock blocked the send entirely
+
+
+def test_send_approved_emails_reclaims_stale_lock(settings, monkeypatch):
+    init_db(settings.db_path, settings)
+    lock_path = settings.db_path.parent / "send.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path.write_text("12345")
+
+    import os
+    import time as time_module
+
+    stale_time = time_module.time() - 3600  # older than _LOCK_STALE_SECONDS
+    os.utime(lock_path, (stale_time, stale_time))
+
+    with connect(settings.db_path) as conn:
+        _insert_approved_email(conn, company_name="Meesho", contact_email="priya@meesho.example")
+        sender = FakeEmailSender()
+
+        stats = send_approved_emails(
+            conn,
+            sender,
+            resume_pdf_path=FAKE_RESUME,
+            bounce_rate_circuit_breaker=settings.send.bounce_rate_circuit_breaker,
+            today=date(2026, 1, 1),
+            db_path=settings.db_path,
+        )
+
+    assert stats.sent == 1
+    assert not lock_path.exists()  # released after the (reclaimed) run finished
+
+
+def test_send_approved_emails_releases_lock_after_success(settings):
+    init_db(settings.db_path, settings)
+    lock_path = settings.db_path.parent / "send.lock"
+
+    with connect(settings.db_path) as conn:
+        _insert_approved_email(conn, company_name="Meesho", contact_email="priya@meesho.example")
+        sender = FakeEmailSender()
+
+        send_approved_emails(
+            conn,
+            sender,
+            resume_pdf_path=FAKE_RESUME,
+            bounce_rate_circuit_breaker=settings.send.bounce_rate_circuit_breaker,
+            today=date(2026, 1, 1),
+            db_path=settings.db_path,
+        )
+
+    assert not lock_path.exists()
+
+
+def test_send_approved_emails_releases_lock_when_circuit_breaker_trips(settings):
+    """The lock must not leak on any early-return path, not just the happy path."""
+    init_db(settings.db_path, settings)
+    lock_path = settings.db_path.parent / "send.lock"
+
+    with connect(settings.db_path) as conn:
+        conn.execute(
+            "INSERT INTO send_log (date, sent_count, bounce_count) VALUES ('2025-12-31', 10, 10)"
+        )
+        conn.commit()
+        _insert_approved_email(conn, company_name="Meesho", contact_email="priya@meesho.example")
+        sender = FakeEmailSender()
+
+        stats = send_approved_emails(
+            conn,
+            sender,
+            resume_pdf_path=FAKE_RESUME,
+            bounce_rate_circuit_breaker=0.05,
+            today=date(2026, 1, 1),
+            db_path=settings.db_path,
+        )
+
+    assert stats.circuit_breaker_tripped is True
+    assert not lock_path.exists()
 
 
 def test_send_approved_emails_weekend_skip_checked_before_circuit_breaker(settings):
@@ -565,6 +689,7 @@ def test_send_approved_emails_weekend_skip_checked_before_circuit_breaker(settin
             resume_pdf_path=FAKE_RESUME,
             bounce_rate_circuit_breaker=0.05,
             today=date(2026, 1, 3),  # Saturday
+            db_path=settings.db_path,
         )
 
     assert stats.skipped_weekend is True

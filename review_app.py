@@ -30,6 +30,7 @@ from agent import (
     SCOPES,
     GmailApiSender,
     GmailReplyChecker,
+    SendAlreadyInProgressError,
     SendingError,
     check_bounces,
     check_gmail_token,
@@ -255,22 +256,40 @@ with dashboard_tab:
         )
 
         def _send_now(*, allow_weekend: bool) -> None:
-            try:
-                sender = GmailApiSender(settings.sender_email, settings.gmail_token_path)
-            except SendingError as exc:
-                st.error(str(exc))
+            # Belt-and-suspenders alongside the cross-process file lock in
+            # agent.sending: this session_state flag gives an instant "already
+            # running" message for a same-tab double-click without waiting on the
+            # lock check, since Streamlit doesn't disable a button while its own
+            # handler is still executing (see SendAlreadyInProgressError's docstring
+            # for the 2026-09-10 double-send incident this whole guard closes).
+            if st.session_state.get("send_in_progress"):
+                st.error("A send is already in progress in this tab — please wait for it to finish.")
                 return
-            with connect(settings.db_path) as conn:
-                stats = send_approved_emails(
-                    conn,
-                    sender,
-                    resume_pdf_path=settings.resume_pdf_path,
-                    bounce_rate_circuit_breaker=settings.send.bounce_rate_circuit_breaker,
-                    today=date.today(),
-                    min_delay_seconds=settings.send.min_delay_seconds,
-                    max_delay_seconds=settings.send.max_delay_seconds,
-                    allow_weekend=allow_weekend,
-                )
+            st.session_state["send_in_progress"] = True
+            try:
+                try:
+                    sender = GmailApiSender(settings.sender_email, settings.gmail_token_path)
+                except SendingError as exc:
+                    st.error(str(exc))
+                    return
+                with connect(settings.db_path) as conn:
+                    try:
+                        stats = send_approved_emails(
+                            conn,
+                            sender,
+                            resume_pdf_path=settings.resume_pdf_path,
+                            bounce_rate_circuit_breaker=settings.send.bounce_rate_circuit_breaker,
+                            today=date.today(),
+                            db_path=settings.db_path,
+                            min_delay_seconds=settings.send.min_delay_seconds,
+                            max_delay_seconds=settings.send.max_delay_seconds,
+                            allow_weekend=allow_weekend,
+                        )
+                    except SendAlreadyInProgressError as exc:
+                        st.error(str(exc))
+                        return
+            finally:
+                st.session_state["send_in_progress"] = False
             if stats.circuit_breaker_tripped:
                 st.error(
                     "Circuit breaker tripped on recent bounce rate — nothing sent. "

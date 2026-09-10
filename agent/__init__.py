@@ -127,6 +127,7 @@ from agent.review_queue import (
 )
 from agent.sending import (
     EmailSender,
+    SendAlreadyInProgressError,
     SendingError,
     SendStats,
     apply_ramp_if_due,
@@ -166,6 +167,7 @@ __all__ = [
     "list_pending_drafts",
     "reject_draft",
     "EmailSender",
+    "SendAlreadyInProgressError",
     "SendingError",
     "SendStats",
     "apply_ramp_if_due",

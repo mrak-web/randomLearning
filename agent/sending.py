@@ -9,18 +9,80 @@ circuit breaker, daily-cap accounting, and marking rows sent.
 
 from __future__ import annotations
 
+import os
 import random
 import sqlite3
 import time
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterator
 
 
 class SendingError(Exception):
     """Raised when a send attempt or Gmail setup step fails."""
+
+
+class SendAlreadyInProgressError(SendingError):
+    """Raised when another send_approved_emails run holds the lock.
+
+    2026-09-10: Arjun clicked the dashboard's "Send Now" button multiple times while
+    a slow batch was mid-flight (each send has a deliberate delay between messages, see
+    min_delay_seconds/max_delay_seconds). Streamlit doesn't disable a button while its
+    handler is running, so this produced two concurrent send_approved_emails calls
+    against the same SQLite file: both SELECTed the same still-'approved' rows before
+    either had committed a 'sent' status, so several contacts (e.g. vaibhav.haseja@
+    viacom18.com) were emailed for real more than once even though each row only shows
+    one 'sent' UPDATE in email_queue. A file lock closes this window at the source --
+    both the manual button and the 10:30am Task Scheduler run go through this same
+    function, so locking here (not just disabling the Streamlit button) also protects
+    against a manual run overlapping the scheduled one.
+    """
+
+
+# A real send batch can legitimately run for several minutes (one row per
+# min_delay_seconds..max_delay_seconds gap), but never anywhere near this long -- past
+# this age a lock file must be left over from a crashed/killed process, not an active
+# run, so it's safe to reclaim rather than block forever.
+_LOCK_STALE_SECONDS = 30 * 60
+
+
+@contextmanager
+def _send_lock(lock_path: Path) -> Iterator[None]:
+    """Filesystem mutex so only one send_approved_emails runs at a time.
+
+    Uses O_CREAT|O_EXCL for an atomic create-or-fail, which is safe across separate
+    processes (unlike a session_state flag, which only protects one Streamlit session
+    and does nothing for the Task Scheduler process).
+    """
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if lock_path.exists():
+        age = time.time() - lock_path.stat().st_mtime
+        if age < _LOCK_STALE_SECONDS:
+            raise SendAlreadyInProgressError(
+                "A send is already in progress (lock held for "
+                f"{int(age)}s) -- refusing to start a second one. Wait for it to "
+                "finish, or check data/daily_run.log / the dashboard if this seems "
+                "stuck."
+            )
+        lock_path.unlink()  # stale lock from a crashed/killed run
+
+    try:
+        fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        raise SendAlreadyInProgressError(
+            "A send is already in progress -- refusing to start a second one."
+        )
+    os.write(fd, str(os.getpid()).encode())
+    os.close(fd)
+
+    try:
+        yield
+    finally:
+        lock_path.unlink(missing_ok=True)
 
 
 class EmailSender(ABC):
@@ -143,6 +205,7 @@ def send_approved_emails(
     resume_pdf_path: Path,
     bounce_rate_circuit_breaker: float,
     today: date,
+    db_path: Path,
     min_delay_seconds: float = 0.0,
     max_delay_seconds: float = 0.0,
     sleep_fn: Callable[[float, float], None] = _default_sleep,
@@ -159,7 +222,38 @@ def send_approved_emails(
     explicitly confirms a warning) — the scheduled daily run never sets it, so an
     approval made on a Friday/Saturday/Sunday just waits at status='approved' until the
     next weekday's 10:30am run. Rows are left untouched, not rejected.
+
+    Raises SendAlreadyInProgressError instead of sending anything if another call to
+    this function (manual "Send Now" or the scheduled run, in this or another process)
+    is already mid-batch — see that class's docstring for the 2026-09-10 double-send
+    incident this closes.
     """
+    with _send_lock(db_path.parent / "send.lock"):
+        return _send_approved_emails_locked(
+            conn,
+            sender,
+            resume_pdf_path=resume_pdf_path,
+            bounce_rate_circuit_breaker=bounce_rate_circuit_breaker,
+            today=today,
+            min_delay_seconds=min_delay_seconds,
+            max_delay_seconds=max_delay_seconds,
+            sleep_fn=sleep_fn,
+            allow_weekend=allow_weekend,
+        )
+
+
+def _send_approved_emails_locked(
+    conn: sqlite3.Connection,
+    sender: EmailSender,
+    *,
+    resume_pdf_path: Path,
+    bounce_rate_circuit_breaker: float,
+    today: date,
+    min_delay_seconds: float = 0.0,
+    max_delay_seconds: float = 0.0,
+    sleep_fn: Callable[[float, float], None] = _default_sleep,
+    allow_weekend: bool = False,
+) -> SendStats:
     if is_weekend(today) and not allow_weekend:
         return SendStats(skipped_weekend=True)
 
